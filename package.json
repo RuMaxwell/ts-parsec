@@ -1,0 +1,15 @@
+{
+  "name": "ts-parsec",
+  "version": "1.0.0",
+  "description": "An intuitive parser combinator for TypeScript.",
+  "main": "build/index.js",
+  "scripts": {
+    "build": "tsc && node build/index.js",
+    "test": "tsc && node build/test/test.js"
+  },
+  "author": "Ruthenium Maxwell",
+  "license": "MIT",
+  "dependencies": {
+    "@types/node": "^14.6.4"
+  }
+}

@@ -1,16 +1,15 @@
-import '../src/lex'
+import { RuleSet, Lexer } from '../src/lex'
 
 function LexTest() {
-  const identifierPattern = /[A-Za-z\-][A-Za-z0-9\-]/
-  const builtInPattern = '/' + identifierPattern + '/'
-  const charPattern = ''
+  const identifierPattern = /^[A-Za-z\-][A-Za-z0-9\-]/
+  const builtInPattern = new RegExp('/' + /^[A-Za-z\-][A-Za-z0-9\-]/ + '/')
 
   const lexRules = new RuleSet(
     // free rules
-    {
-      identifierPattern: 'identifier', // string | (token: Token) => Token
-      builtInPattern: 'builtin',
-    },
+    [
+      { pattern: identifierPattern, tokenType: 'identifier' }, // string | (token: Token) => Token
+      { pattern: builtInPattern, tokenType: 'builtin' }
+    ],
     // config preset rules
     {
       skipSpaces: true,

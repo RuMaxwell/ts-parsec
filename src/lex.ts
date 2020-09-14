@@ -10,7 +10,18 @@ function eq(a: any, b: any): boolean {
 }
 
 function isDigit(x: string): boolean {
-  return x.charCodeAt(0) >= '0'.charCodeAt(0) && x.charCodeAt(0) <= '9'.charCodeAt(0)
+  let char = x.charCodeAt(0)
+  return char >= 0x30 && char <= 0x39
+}
+
+function isOctal(x: string): boolean {
+  let char = x.charCodeAt(0)
+  return char >= 0x30 && char <= 0x37
+}
+
+function isHexadecimal(x: string): boolean {
+  let char = x.charCodeAt(0)
+  return isDigit(x) || char >= 0x41 && char <= 0x46 || char >= 0x61 && char <= 0x66
 }
 
 export class Lexer {
@@ -39,28 +50,45 @@ export class Lexer {
         while (!this.sp.eof && !this.sp.rest.startsWith(quotation.stop)) {
           if (quotation.escape && eq(this.sp.char, '\\')) {
             // parse escape character
-            // \a 7,\b 8,\f 12,\n 10,\r 13,\t 9,\v 11,\\ 92,\' 39,\" 34,\? 63,\0 0,\ddd 0oddd,\xhh 0xhh
+            // \a 7,\b 8,\f 12,\n 10,\r 13,\t 9,\v 11,\\ 92,\' 39,\" 34,\? 63,\0 0, \255 255, \o377 0o377,\xff 0xff, \uffff 0xffff, \w1ffff String.fromCodePoint(0x1ffff)
             this.sp.advance()
             if (this.sp.eof) throw new EOF()
             switch (this.sp.char) {
-              case 'a': s += '\a'; break
-              case 'b': s += '\b'; break
-              case 'f': s += '\f'; break
-              case 'n': s += '\n'; break
-              case 'r': s += '\r'; break
-              case 't': s += '\t'; break
-              case 'v': s += '\v'; break
+              case 'a': s += String.fromCharCode(7); break
+              case 'b': s += String.fromCharCode(8); break
+              case 'f': s += String.fromCharCode(12); break
+              case 'n': s += String.fromCharCode(10); break
+              case 'r': s += String.fromCharCode(13); break
+              case 't': s += String.fromCharCode(9); break
+              case 'v': s += String.fromCharCode(11); break
               case '\\': s += '\\'; break
               case '\'': s += '\''; break
               case '"': s += '"'; break
               case '?': s += '?'; break
+              case 'o':
+                let n = ''
+                for (let i = 0; i < 3;) {
+                  this.sp.advance()
+                  if (isOctal(this.sp.char)) {
+                    // TODO:
+                  }
+                }
+                break
               case 'x':
                 // TODO:
                 break
+              case 'u':
+                // TODO:
+                break
+              case 'w':
+                // TODO:
+                break
+              case '0': case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9':
+                // TODO:
+                break
               default:
-                if (isDigit(this.sp.char)) {
-                  // TODO:
-                }
+                // if (isDigit(this.sp.char)) {}
+                // TODO: throw error
             }
           }
           this.sp.advance()
@@ -173,7 +201,7 @@ export class RuleSet {
   staticGuard: Map<string, string | TokenMapper>
   dynamicGuard: { pat: RegExp, tk: string | TokenMapper }[]
   comment: { line?: string, nested?: { begin: string, end: string, nested: boolean } }
-  quotes: { [starts: string]: { tokenType: string, stop: string, escape: boolean } }
+  quotes: { [starts: string]: { tokenType: string, stop: string, escape: boolean, multiline: boolean } }
   precedence: {
     static: { [operators: string]: { precedence: number, associativity: 'none' | 'left' | 'right' } },
     dynamic: { pattern: RegExp, precedence: number, associativity: 'none' | 'left' | 'right' }[]
@@ -208,10 +236,11 @@ export class RuleSet {
         | {[tokenTypes: string]: string  /* multiple symbols to quote different kinds of strings, a tokenType specified for each kind of string.
           //                                e.g. { "'": 'string', '"': 'string', '`': 'string-template', '/': 'regex' } */
           | {
-            tokenType: string,              /* specifies the tokenType of this kind of quoted string. e.g. 'python-raw-str' */
-            start: string,                  /* specifies the start symbol of this kind of quoted string. e.g. 'r"' */
-            stop: string,                   /* specifies the end symbol of this kind of quoted string. e.g. '"' */
-            escape?: boolean                /* defines whether escape characters in the string should be parsed. default: true. */
+            tokenType: string,              /* the tokenType of this kind of quoted string. e.g. 'python-raw-str' */
+            start: string,                  /* the start symbol of this kind of quoted string. e.g. 'r"' */
+            stop: string,                   /* the end symbol of this kind of quoted string. e.g. '"' */
+            escape?: boolean,               /* whether escape characters in the string should be parsed. default: true. */
+            multiline?: boolean             /* whether the string allows multiline literal. default: false */
             //                              /* e.g. { tokenType: 'python-raw-str', start: 'r"', end: '"', escape: false } */
           }
         }
@@ -221,7 +250,8 @@ export class RuleSet {
       // specifies all operators in order of their precedence in the language
       operators?: (
         string | RegExp                   /* operator(s) in its pattern. associativity defaults to 'none'. e.g. '\\^' for C, '+.*' for all operators starts with '+' in Scala */
-      | { pattern: string | RegExp, associativity: 'none' | 'left' | 'right' }[] /* operator(s) in its pattern and in the same precedence, with specified associativity.
+      | { pattern: string | RegExp, associativity: 'none' | 'left' | 'right' }   /* an operator in its pattern with specified associativity */
+      | { pattern: string | RegExp, associativity: 'none' | 'left' | 'right' }[] /* operator(s) in their pattern and in the same precedence, with specified associativity.
       //                                                   e.g. { '+': 'left', '-': 'left' } for C */
       )[]
     }
@@ -267,7 +297,8 @@ export class RuleSet {
         this.quotes[quote] = {
           tokenType: TK_QUOTED_STRING + quote,
           stop: quote,
-          escape: true
+          escape: true,
+          multiline: false
         }
       } else {
         let quotes = presetConfig.string.quotes
@@ -275,7 +306,8 @@ export class RuleSet {
           this.quotes[quotes] = {
             tokenType: TK_QUOTED_STRING + quotes,
             stop: quotes,
-            escape: true
+            escape: true,
+            multiline: false
           }
         } else if (quotes instanceof Array) {
           if (quotes.length === 1) {
@@ -283,14 +315,16 @@ export class RuleSet {
             this.quotes[quote] = {
               tokenType: TK_QUOTED_STRING + quote,
               stop: quote,
-              escape: true
+              escape: true,
+              multiline: false
             }
           } else if (quotes.length >= 2) {
             let [start, stop] = quotes
             this.quotes[start] = {
               tokenType: TK_QUOTED_STRING + start + stop,
               stop,
-              escape: true
+              escape: true,
+              multiline: false
             }
           } else {
             throw new RangeError('lexer rule: quotes: expected at least 1 element for input type of Array')
@@ -302,13 +336,15 @@ export class RuleSet {
               this.quotes[quote] = {
                 tokenType,
                 stop: quote,
-                escape: true
+                escape: true,
+                multiline: false
               }
             } else {
               this.quotes[quote.start] = {
                 tokenType,
                 stop: quote.stop,
-                escape: quote.escape === undefined ? true : quote.escape
+                escape: quote.escape === undefined ? true : quote.escape,
+                multiline: quote.multiline === undefined ? false : quote.multiline
               }
             }
           }

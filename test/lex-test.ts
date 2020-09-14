@@ -39,9 +39,9 @@ function LexTest() {
       ],
       // operators with precedence higher->lower
       operators: [
-        { '/pow/': 'right' },
-        { '/mul/': 'left', '/div/': 'left' },
-        { '/add/': 'left', '/sub/': 'left' },
+        { pattern: '/pow/', associativity: 'right' },
+        [{ pattern: '/mul/', associativity: 'left' }, { pattern: '/div/', associativity: 'left' }],
+        [{ pattern: '/add/', associativity: 'left'}, { pattern: '/sub/', associativity: 'left' }],
       ]
     }
   )

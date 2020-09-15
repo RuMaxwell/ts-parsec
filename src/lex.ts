@@ -1,6 +1,23 @@
-class EOF {
+export class EOF {
   toString() {
     return 'lexeme error: unexpected EOF'
+  }
+}
+
+/** must be catched */
+export class ParseFailure {
+  msg: string
+  line: number
+  column: number
+
+  constructor(msg: string, line: number, column: number) {
+    this.msg = msg
+    this.line = line
+    this.column = column
+  }
+
+  toString() {
+    return `parse error: ${this.msg} at line ${this.line}, column ${this.column}`
   }
 }
 
@@ -34,11 +51,11 @@ export class Lexer {
   }
 
   // throws tokenizing errors
-  next(): Token | 'eof' {
+  next(): Token {
     this.skipWhites()
 
     if (this.sp.eof) {
-      return 'eof'
+      throw new EOF()
     }
 
     // check quoted strings
@@ -46,11 +63,13 @@ export class Lexer {
       if (this.sp.rest.startsWith(quote)) {
         let quotation = this.ruleSet.quotes[quote]
         let s = ''
+        const startLine = this.sp.line
+        const startColumn = this.sp.column
         this.sp.advance(quote.length)
         while (!this.sp.eof && !this.sp.rest.startsWith(quotation.stop)) {
           if (quotation.escape && eq(this.sp.char, '\\')) {
             // parse escape character
-            // \a 7,\b 8,\f 12,\n 10,\r 13,\t 9,\v 11,\\ 92,\' 39,\" 34,\? 63,\0 0, \255 255, \o377 0o377,\xff 0xff, \uffff 0xffff, \w1ffff String.fromCodePoint(0x1ffff)
+            // \a 7,\b 8,\f 12,\n 10,\r 13,\t 9,\v 11,\\ 92,\' 39,\" 34,\? 63,\0 0,\255 255, \o377 0o377,\xff 0xff,\uffff 0xffff,\w1ffff String.fromCodePoint(0x1ffff)
             this.sp.advance()
             if (this.sp.eof) throw new EOF()
             switch (this.sp.char) {
@@ -66,33 +85,103 @@ export class Lexer {
               case '"': s += '"'; break
               case '?': s += '?'; break
               case 'o':
-                let n = ''
-                for (let i = 0; i < 3;) {
-                  this.sp.advance()
-                  if (isOctal(this.sp.char)) {
-                    // TODO:
+                {
+                  let n = ''
+                  for (let i = 0; i < 3;) {
+                    this.sp.advance()
+                    if (this.sp.eof) { // "...\o.EOF
+                      throw new EOF()
+                    }
+                    if (isOctal(this.sp.char)) {
+                      n += this.sp.char
+                    } else {
+                      throw new ParseFailure('invalid octal escape character', this.sp.line, this.sp.column)
+                    }
                   }
+                  s += String.fromCharCode(parseInt(n, 8))
                 }
                 break
               case 'x':
-                // TODO:
+                {
+                  let n = ''
+                  for (let i = 0; i < 2;) {
+                    this.sp.advance()
+                    if (this.sp.eof) { // "...\x.EOF
+                      throw new EOF()
+                    }
+                    if (isHexadecimal(this.sp.char)) {
+                      n += this.sp.char
+                    } else {
+                      throw new ParseFailure('invalid hexadecimal escape character', this.sp.line, this.sp.column)
+                    }
+                  }
+                  s += String.fromCharCode(parseInt(n, 16))
+                }
                 break
               case 'u':
-                // TODO:
+                {
+                  let n = ''
+                  for (let i = 0; i < 4;) {
+                    this.sp.advance()
+                    if (this.sp.eof) { // "...\u.EOF
+                      throw new EOF()
+                    }
+                    if (isHexadecimal(this.sp.char)) {
+                      n += this.sp.char
+                    } else {
+                      throw new ParseFailure('invalid Unicode-16 escape character', this.sp.line, this.sp.column)
+                    }
+                  }
+                  s += String.fromCharCode(parseInt(n, 16))
+                }
                 break
               case 'w':
-                // TODO:
+                {
+                  let n = ''
+                  for (let i = 0; i < 4;) {
+                    this.sp.advance()
+                    if (this.sp.eof) { // "...\w.EOF
+                      throw new EOF()
+                    }
+                    if (isHexadecimal(this.sp.char)) {
+                      n += this.sp.char
+                    } else {
+                      throw new ParseFailure('invalid Unicode-32 escape character', this.sp.line, this.sp.column)
+                    }
+                  }
+                  this.sp.advance()
+                  if (isHexadecimal(this.sp.char)) {
+                    n += this.sp.char
+                  }
+                  s += String.fromCharCode(parseInt(n, 16))
+                }
                 break
               case '0': case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9':
-                // TODO:
+                {
+                  let n = ''
+                  for (let i = 1; i < 3; i++) {
+                    if (isDigit(this.sp.char)) {
+                      n += this.sp.char
+                    } else {
+                      break
+                    }
+                    this.sp.advance()
+                  }
+                  s += String.fromCharCode(parseInt(n, 10))
+                }
                 break
               default:
-                // if (isDigit(this.sp.char)) {}
-                // TODO: throw error
+                throw new ParseFailure('invalid escape character', this.sp.line, this.sp.column)
             }
           }
+          if (eq(this.sp.char, '\n') && !quotation.multiline) {
+            throw new ParseFailure('line break not allowed in this place', this.sp.line, this.sp.column)
+          }
+          s += this.sp.char
           this.sp.advance()
         }
+        this.sp.advance(quotation.stop.length)
+        return new Token(quotation.tokenType, s, startLine, startColumn)
       }
     }
 
@@ -139,8 +228,23 @@ export class Lexer {
     // check every dynamic rule
     for (let i in this.ruleSet.dynamicGuard) {
       let guard = this.ruleSet.dynamicGuard[i]
-      if (this.sp.rest.)
+      let m
+      if (m = this.sp.rest.match(guard.pat)) {
+        if (m !== null) {
+          const literal = m[0]
+          const line = this.sp.line
+          const column = this.sp.column
+          this.sp.advance(literal.length)
+          if (typeof guard.tk === 'string') {
+            return new Token(guard.tk, literal, line, column)
+          } else {
+            return guard.tk(new Token('', literal, line, column))
+          }
+        }
+      }
     }
+
+    throw new ParseFailure('invalid token', this.sp.line, this.sp.column)
   }
 
   skipWhites() {
@@ -176,7 +280,7 @@ export class Lexer {
   }
 }
 
-class Token {
+export class Token {
   type: string
   literal: string
   line: number
@@ -366,7 +470,7 @@ export class RuleSet {
             precedence: i,
             associativity: 'none'
           })
-        } else {
+        } else if (op instanceof Array) {
           for (let j in op) {
             let o = op[j]
             if (typeof o.pattern === 'string') {
@@ -381,6 +485,19 @@ export class RuleSet {
                 associativity: o.associativity
               })
             }
+          }
+        } else {
+          if (typeof op.pattern === 'string') {
+            this.precedence.static[op.pattern] = {
+              precedence: i,
+              associativity: op.associativity
+            }
+          } else {
+            this.precedence.dynamic.push({
+              pattern: op.pattern,
+              precedence: i,
+              associativity: op.associativity
+            })
           }
         }
       }
@@ -449,7 +566,7 @@ class SourcePosition {
       future: source
     }
     this.line = 1
-    this.column = 0
+    this.column = 1
   }
 
   get rest() {
@@ -464,7 +581,7 @@ class SourcePosition {
 
   private _step() {
     if (this.eof) {
-      throw new RangeError('lexer: advance while EOF')
+      throw new EOF()
     }
     if (this.char === '\r') {
     }

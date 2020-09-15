@@ -1,8 +1,14 @@
-import { RuleSet, Lexer } from '../src/lex'
+import { RuleSet, Lexer, Token, ParseFailure, EOF } from '../src/lex'
+import { Failure, Try } from '../src/catcher'
+import fs from 'fs'
+import pathlib from 'path'
 
-function LexTest() {
-  const identifierPattern = /^[A-Za-z\-][A-Za-z0-9\-]/
-  const builtInPattern = new RegExp('/' + /^[A-Za-z\-][A-Za-z0-9\-]/ + '/')
+export function LexTest() {
+  const path = pathlib.resolve('./test/lex-test-src.nos')
+  const source = fs.readFileSync(path).toString()
+
+  const identifierPattern = /^[A-Za-z][A-Za-z0-9\-]*/
+  const builtInPattern = new RegExp('/' + /^[A-Za-z\-][A-Za-z0-9\-]*/ + '/')
 
   const lexRules = new RuleSet(
     // free rules
@@ -45,4 +51,17 @@ function LexTest() {
       ]
     }
   )
+
+  const lexer = new Lexer(lexRules, source)
+
+  while (true) {
+    console.log(Try<Token, ParseFailure | EOF>(() => lexer.next()).unwrapOr(err => {
+      if (err instanceof ParseFailure) {
+        console.error(err.toString())
+        return new Failure(1)
+      } else if (err instanceof EOF) {
+        return null
+      }
+    }))
+  }
 }

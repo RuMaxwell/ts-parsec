@@ -1,0 +1,16 @@
+html
+  lang='en'
+  style='width: 100%'
+{
+  head {}
+  body {
+    div #app {
+      router-view;
+      span 'text'
+      'text'
+    }
+    script (
+      underfined
+    )
+  }
+}

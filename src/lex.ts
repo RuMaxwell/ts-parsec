@@ -1,3 +1,29 @@
+/**
+ * Usage:
+ * import { EOF, LexFailure, Token, RuleSet, Lexer } from 'path/to/lex'
+ * import { Failure, Try } from 'path/to/catcher'
+ *
+ * const ruleSet = new RuleSet({
+ *   ...
+ * })
+ *
+ * const lexer = new Lexer(ruleSet, source)
+ *
+ * // for presentation
+ * lexer.show()
+ *
+ * // get all tokens at once
+ * const tokens = lexer.allTokens()
+ *
+ * // use tokens one by one
+ * let gen = lexer.iterate()
+ * for (let t = gen.next(); !t.done; t = gen.next()) {
+ *   console.log(t.value)
+ * }
+ */
+
+import { Try, Failure } from './catcher'
+
 export class EOF {
   toString() {
     return 'lexeme error: unexpected EOF'
@@ -5,7 +31,7 @@ export class EOF {
 }
 
 /** must be catched */
-export class ParseFailure {
+export class LexFailure {
   msg: string
   line: number
   column: number
@@ -50,9 +76,60 @@ export class Lexer {
     this.sp = new SourcePosition(source)
   }
 
+  show(): void {
+    while (true) {
+      console.log(Try<Token, LexFailure | EOF>(() => this.next()).unwrapOr(err => {
+        if (err instanceof LexFailure) {
+          console.error(err.toString())
+          return new Failure(1)
+        } else if (err instanceof EOF) {
+          return null
+        }
+      }))
+    }
+  }
+
+  allTokens(): Token[] {
+    const ts = []
+    while (true) {
+      try {
+        ts.push(Try<Token, LexFailure | EOF>(() => this.next()).unwrap())
+      } catch (e) {
+        if (e instanceof LexFailure) {
+          console.error(e)
+          break
+        } else if (e instanceof EOF) {
+          break
+        } else {
+          throw e
+        }
+      }
+    }
+    return ts
+  }
+
+  *iterate(): Generator<Token> {
+    while (true) {
+      try {
+        yield Try<Token, LexFailure | EOF>(() => this.next()).unwrap()
+      } catch (e) {
+        if (e instanceof LexFailure) {
+          console.error(e)
+          break
+        } else if (e instanceof EOF) {
+          break
+        } else {
+          throw e
+        }
+      }
+    }
+  }
+
   // throws tokenizing errors
   next(): Token {
-    this.skipWhites()
+    if (this.ruleSet.skipSpaces) {
+      this.skipWhites()
+    }
 
     if (this.sp.eof) {
       throw new EOF()
@@ -95,7 +172,7 @@ export class Lexer {
                     if (isOctal(this.sp.char)) {
                       n += this.sp.char
                     } else {
-                      throw new ParseFailure('invalid octal escape character', this.sp.line, this.sp.column)
+                      throw new LexFailure('invalid octal escape character', this.sp.line, this.sp.column)
                     }
                   }
                   s += String.fromCharCode(parseInt(n, 8))
@@ -112,7 +189,7 @@ export class Lexer {
                     if (isHexadecimal(this.sp.char)) {
                       n += this.sp.char
                     } else {
-                      throw new ParseFailure('invalid hexadecimal escape character', this.sp.line, this.sp.column)
+                      throw new LexFailure('invalid hexadecimal escape character', this.sp.line, this.sp.column)
                     }
                   }
                   s += String.fromCharCode(parseInt(n, 16))
@@ -129,7 +206,7 @@ export class Lexer {
                     if (isHexadecimal(this.sp.char)) {
                       n += this.sp.char
                     } else {
-                      throw new ParseFailure('invalid Unicode-16 escape character', this.sp.line, this.sp.column)
+                      throw new LexFailure('invalid Unicode-16 escape character', this.sp.line, this.sp.column)
                     }
                   }
                   s += String.fromCharCode(parseInt(n, 16))
@@ -146,7 +223,7 @@ export class Lexer {
                     if (isHexadecimal(this.sp.char)) {
                       n += this.sp.char
                     } else {
-                      throw new ParseFailure('invalid Unicode-32 escape character', this.sp.line, this.sp.column)
+                      throw new LexFailure('invalid Unicode-32 escape character', this.sp.line, this.sp.column)
                     }
                   }
                   this.sp.advance()
@@ -171,11 +248,11 @@ export class Lexer {
                 }
                 break
               default:
-                throw new ParseFailure('invalid escape character', this.sp.line, this.sp.column)
+                throw new LexFailure('invalid escape character', this.sp.line, this.sp.column)
             }
           }
           if (eq(this.sp.char, '\n') && !quotation.multiline) {
-            throw new ParseFailure('line break not allowed in this place', this.sp.line, this.sp.column)
+            throw new LexFailure('line break not allowed in this place', this.sp.line, this.sp.column)
           }
           s += this.sp.char
           this.sp.advance()
@@ -244,7 +321,7 @@ export class Lexer {
       }
     }
 
-    throw new ParseFailure('invalid token', this.sp.line, this.sp.column)
+    throw new LexFailure('invalid token', this.sp.line, this.sp.column)
   }
 
   skipWhites() {
@@ -296,12 +373,13 @@ export class Token {
 
 type TokenMapper = (token: Token) => Token
 
-const TK_KEYWORD = '__kw'
-const TK_QUOTED_STRING = '__quoted_by'
+const TK_KEYWORD = '__kw_'
+const TK_QUOTED_STRING = '__quoted_by_'
 
 // Wording
 // "begin" and "end" are used for nested structures (like parentheses), "start" and "stop" are used for unnested structures (like strings).
 export class RuleSet {
+  skipSpaces: boolean
   staticGuard: Map<string, string | TokenMapper>
   dynamicGuard: { pat: RegExp, tk: string | TokenMapper }[]
   comment: { line?: string, nested?: { begin: string, end: string, nested: boolean } }
@@ -330,6 +408,34 @@ export class RuleSet {
         end: string,                      /* symbol to end a nested comment */
         nested?: boolean                  /* whether the comment is nested */
       },
+      // to use common parentheses
+      parentheses?: {
+        '()'?: boolean,
+        '[]'?: boolean,
+        '{}'?: boolean
+      },
+      // to use numbers
+      numbers?: {
+        // to use integers
+        integer?:
+          true                            /* default: { hex: true, oct: true, octO: true, bin: true, separator: true, signed: true } */
+        | {
+          hex?: boolean,                  /* use hexadecimal integer. e.g. 0x123 */
+          oct?:                           /* use octal integer. */
+            boolean                       /* default: { o: true } */
+          | { o?: boolean },              /* whether to use octal "0o" prefix instead of "0". e.g. 0o123 instead of 0123 */
+          bin?: boolean,                  /* use binary integer. e.g. 0b1000101001 */
+          separator?: boolean,            /* use digit separater. e.g. 0b1001_0011_1010 0xffff_ffba */
+          signed?: boolean                /* use prefix sign. e.g. +1 -1 */
+        },
+        // to use float pointer numbers
+        float?:
+          true                            /* default: { exp: true, signed: true } */
+        | {
+          exp?: boolean,                  /* use exponential part. e.g. 1.0e2 1.0e-2 */
+          signed?: boolean                /* use prefix sign. e.g. +1.0 -1.0 */
+        }
+      },
       // specifies how to quotes a string.
       string?:
         string                            /* symbol to quote a string. e.g. '"' for C++ */
@@ -340,7 +446,6 @@ export class RuleSet {
         | {[tokenTypes: string]: string  /* multiple symbols to quote different kinds of strings, a tokenType specified for each kind of string.
           //                                e.g. { "'": 'string', '"': 'string', '`': 'string-template', '/': 'regex' } */
           | {
-            tokenType: string,              /* the tokenType of this kind of quoted string. e.g. 'python-raw-str' */
             start: string,                  /* the start symbol of this kind of quoted string. e.g. 'r"' */
             stop: string,                   /* the end symbol of this kind of quoted string. e.g. '"' */
             escape?: boolean,               /* whether escape characters in the string should be parsed. default: true. */
@@ -360,6 +465,7 @@ export class RuleSet {
       )[]
     }
   ) {
+    this.skipSpaces = presetConfig.skipSpaces || true
     this.staticGuard = new Map()
     this.dynamicGuard = []
     this.comment = {
@@ -383,8 +489,24 @@ export class RuleSet {
         })
       }
     }
+    if (presetConfig.parentheses) {
+      const paren = presetConfig.parentheses
+      if (paren['()']) {
+        this.staticGuard.set('(', '(')
+        this.staticGuard.set(')', ')')
+      }
+      if (paren['[]']) {
+        this.staticGuard.set('[', '[')
+        this.staticGuard.set(']', ']')
+      }
+      if (paren['{}']) {
+        this.staticGuard.set('{', '{')
+        this.staticGuard.set('}', '}')
+      }
+    }
     if (presetConfig.keywords) {
-      for (let keyword in presetConfig.keywords) {
+      for (let i in presetConfig.keywords) {
+        const keyword = presetConfig.keywords[i]
         if (typeof keyword === 'string') {
           this.staticGuard.set(keyword, TK_KEYWORD + keyword)
         } else {
@@ -393,6 +515,57 @@ export class RuleSet {
             tk: TK_KEYWORD + keyword
           })
         }
+      }
+    }
+    if (presetConfig.numbers) {
+      if (presetConfig.numbers.float === undefined) {
+      } else if (presetConfig.numbers.float === true) {
+        this.dynamicGuard.push({
+          pat: /^[+\-]?(\d+.\d*(e[+\-]?\d+)?)/,
+          tk: 'float'
+        })
+      } else {
+        const f = presetConfig.numbers.float
+        let s = '^'
+        if (f.signed) s += '[+\\-]?'
+        s += '(\d+.\d*'
+        if (f.exp) s += '(e[+\-]?\d+)?'
+        s += ')'
+        this.dynamicGuard.push({
+          pat: new RegExp(s),
+          tk: 'float'
+        })
+      }
+      if (presetConfig.numbers.integer === undefined) {
+      } else if (presetConfig.numbers.integer === true) {
+        this.dynamicGuard.push({
+          pat: /^[+\-]?(0b[01][01_]*|0o[0-7][0-7_]*|0x[0-9A-Fa-f][0-9A-Fa-f_]*|\d+)/,
+          tk: 'integer'
+        })
+      } else {
+        const i = presetConfig.numbers.integer
+        let s = '^'
+        if (i.signed) s += '[+\\-]?'
+        if (i.bin || i.oct || i.hex) {
+          s += '('
+          if (i.bin) {
+            s += '0b[01][01'
+            s += i.separator ? '_]*|' : ']*|'
+          }
+          if (i.oct) {
+            s += '0o[0-7][0-7'
+            s += i.separator ? '_]*|' : ']*|'
+          }
+          if (i.hex) {
+            s += '0x[0-9A-Fa-f][0-9A-Fa-f'
+            s += i.separator ? '_]*|' : ']*|'
+          }
+          s += '\\d+)'
+        }
+        this.dynamicGuard.push({
+          pat: new RegExp(s),
+          tk: 'integer'
+        })
       }
     }
     if (presetConfig.string) {

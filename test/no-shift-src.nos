@@ -1,0 +1,2 @@
+fn main[argc int, argv ptr[str]] void
+  return 1.0 /sub/ 1.0

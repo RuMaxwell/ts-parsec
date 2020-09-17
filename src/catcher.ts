@@ -12,6 +12,10 @@ class Catcher<T, E> {
     this.predicate = predicate
   }
 
+  unwrap(): T {
+    return this.predicate()
+  }
+
   /**
    * Retrieves the data returned by the predicate, on error ends the program.
    * @param errHandler argument `err` is the exception thrown by the predicate; the return value of this handler should be a valid value for use if you want the program to resume, or `null` if you want peaceful shutdown, or `undefined` if you want to rethrow the error.

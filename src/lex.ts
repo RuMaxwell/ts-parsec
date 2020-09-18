@@ -291,13 +291,11 @@ export class Lexer {
           const column = this.sp.column
           this.sp.advance(key.length)
           return new Token(tk, key, line, column)
-        } else if (tk !== undefined) {
+        } else {
           const line = this.sp.line
           const column = this.sp.column
           this.sp.advance(key.length)
-          return tk(new Token('', key, line, column))
-        } else {
-          throw 'impossible'
+          return tk!(new Token('', key, line, column))
         }
       }
     }

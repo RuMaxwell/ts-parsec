@@ -161,7 +161,7 @@ export class Lexer {
               case '\'': s += '\''; break
               case '"': s += '"'; break
               case '?': s += '?'; break
-              case 'o':
+              case 'o': case 'O': // \o377
                 {
                   let n = ''
                   for (let i = 0; i < 3;) {
@@ -178,7 +178,7 @@ export class Lexer {
                   s += String.fromCharCode(parseInt(n, 8))
                 }
                 break
-              case 'x':
+              case 'x': case 'X': // \xff
                 {
                   let n = ''
                   for (let i = 0; i < 2;) {
@@ -195,7 +195,7 @@ export class Lexer {
                   s += String.fromCharCode(parseInt(n, 16))
                 }
                 break
-              case 'u':
+              case 'u': case 'U': // \uffff
                 {
                   let n = ''
                   for (let i = 0; i < 4;) {
@@ -212,10 +212,10 @@ export class Lexer {
                   s += String.fromCharCode(parseInt(n, 16))
                 }
                 break
-              case 'w':
+              case 'w': case 'W': // \w10ffff
                 {
                   let n = ''
-                  for (let i = 0; i < 4;) {
+                  for (let i = 0; i < 6;) {
                     this.sp.advance()
                     if (this.sp.eof) { // "...\w.EOF
                       throw new EOF()
@@ -373,6 +373,7 @@ type TokenMapper = (token: Token) => Token
 
 const TK_KEYWORD = '__kw_'
 const TK_QUOTED_STRING = '__quoted_by_'
+const TK_NUMBER_NOFOLLOW = '__number_nofollow'
 
 // Wording
 // "begin" and "end" are used for nested structures (like parentheses), "start" and "stop" are used for unnested structures (like strings).
@@ -423,7 +424,6 @@ export class RuleSet {
             boolean                       /* default: { o: true } */
           | { o?: boolean },              /* whether to use octal "0o" prefix instead of "0". e.g. 0o123 instead of 0123 */
           bin?: boolean,                  /* use binary integer. e.g. 0b1000101001 */
-          separator?: boolean,            /* use digit separater. e.g. 0b1001_0011_1010 0xffff_ffba */
           signed?: boolean                /* use prefix sign. e.g. +1 -1 */
         },
         // to use float pointer numbers
@@ -432,7 +432,10 @@ export class RuleSet {
         | {
           exp?: boolean,                  /* use exponential part. e.g. 1.0e2 1.0e-2 */
           signed?: boolean                /* use prefix sign. e.g. +1.0 -1.0 */
-        }
+        },
+        separator?: string,               /* numeric separator, default: '_' */
+        noFollow?: boolean                /* prevent some token stick to the end of a number. default: true */
+        //                                /* default checker: 1e, 1ef, 1a, 0b2, 0o8, 0xg, 0xfg not allowed */
       },
       // specifies how to quotes a string.
       string?:
@@ -516,19 +519,43 @@ export class RuleSet {
       }
     }
     if (presetConfig.numbers) {
+      let noFollow = presetConfig.numbers.noFollow || true
+
+      let sep = presetConfig.numbers.separator === undefined ? '_' : presetConfig.numbers.separator
+      if (sep.length !== 1) {
+        throw new Error(`lex rule: numeric separator have to be a character, got '${sep}'`)
+      }
+      if (isHexadecimal(sep)) {
+        throw new Error(`lex rule: character 0-9, A-F, a-f is not allowed to be a numeric separator, got '${sep}'`)
+      }
+      if (sep === '\\' || sep === '-') { sep = '\\' + sep }
       if (presetConfig.numbers.float === undefined) {
       } else if (presetConfig.numbers.float === true) {
+        if (noFollow) {
+          // number stick to some letters is forbidden. e.g. 1.1a
+          this.dynamicGuard.push({
+            pat: new RegExp(`^[+\\-]?(\\d[\\d${sep}]*.[\\d${sep}]*(e[+\\-]?\\d[\\d${sep}]*)?)[A-Za-z]`),
+            tk: TK_NUMBER_NOFOLLOW
+          })
+        }
         this.dynamicGuard.push({
-          pat: /^[+\-]?(\d+.\d*(e[+\-]?\d+)?)/,
+          pat: new RegExp(`^[+\\-]?(\\d[\\d${sep}]*.[\\d${sep}]*(e[+\\-]?\\d[\\d${sep}]*)?)`),
           tk: 'float'
         })
       } else {
         const f = presetConfig.numbers.float
         let s = '^'
         if (f.signed) s += '[+\\-]?'
-        s += '(\d+.\d*'
-        if (f.exp) s += '(e[+\-]?\d+)?'
+        s += `(\\d[\\d${sep}]*.[\\d${sep}]*`
+        if (f.exp) s += `(e[+\\-]?\\d[\\d${sep}]*)?`
         s += ')'
+        if (noFollow) {
+          // number stick to some letters is forbidden. e.g. 1.1a
+          this.dynamicGuard.push({
+            pat: new RegExp(`${s}[A-Za-z]`),
+            tk: TK_NUMBER_NOFOLLOW
+          })
+        }
         this.dynamicGuard.push({
           pat: new RegExp(s),
           tk: 'float'
@@ -536,29 +563,51 @@ export class RuleSet {
       }
       if (presetConfig.numbers.integer === undefined) {
       } else if (presetConfig.numbers.integer === true) {
+        if (noFollow) {
+          // decimal number stick to some letters is forbidden. e.g. 1a, 0xfg.
+          // binary number stick to some non-binary digits is forbidden. e.g. 0b102, 0b2
+          // octal number stick to some non-octal number is forbidden. e.g. 0o08, 0o8
+          // hexadecimal number stick to some non-hexadecimal characters is forbidden. e.g. 0xfg, 0xg
+          this.dynamicGuard.push({
+            pat: new RegExp(`^[+\\-]?(0[Bb][^01]|0[Bb][01][01${sep}]*[A-Za-z2-9]|0[Oo][^0-7]|0[Oo][0-7][0-7${sep}]*[A-Za-z89]|0[Xx][^A-Fa-f0-9]|0[Xx][0-9A-Fa-f][0-9A-Fa-f${sep}]*[G-Zg-z]|\\d[\\d${sep}]*[A-Za-z])`),
+            tk: TK_NUMBER_NOFOLLOW
+          })
+        }
         this.dynamicGuard.push({
-          pat: /^[+\-]?(0b[01][01_]*|0o[0-7][0-7_]*|0x[0-9A-Fa-f][0-9A-Fa-f_]*|\d+)/,
+          pat: new RegExp(`^[+\\-]?(0[Bb][01][01${sep}]*|0[Oo][0-7][0-7${sep}]*|0[Xx][0-9A-Fa-f][0-9A-Fa-f${sep}]*|\\d[\\d${sep}]*)`),
           tk: 'integer'
         })
       } else {
         const i = presetConfig.numbers.integer
+        let nof = '^'
         let s = '^'
-        if (i.signed) s += '[+\\-]?'
+        if (i.signed) {
+          nof += '[+\\-]?'
+          s += '[+\\-]?'
+        }
         if (i.bin || i.oct || i.hex) {
+          nof += '('
           s += '('
           if (i.bin) {
-            s += '0b[01][01'
-            s += i.separator ? '_]*|' : ']*|'
+            nof += `0[Bb][^01]|0[Bb][01][01${sep}]*[A-Za-z2-9]|`
+            s += `0[Bb][01][01${sep}]*|`
           }
           if (i.oct) {
-            s += '0o[0-7][0-7'
-            s += i.separator ? '_]*|' : ']*|'
+            nof += `0[Oo][^0-7]|0[Oo][0-7][0-7${sep}]*[A-Za-z89]|`
+            s += `0[Oo][0-7][0-7${sep}]*|`
           }
           if (i.hex) {
-            s += '0x[0-9A-Fa-f][0-9A-Fa-f'
-            s += i.separator ? '_]*|' : ']*|'
+            nof += `0[Xx][^A-Fa-f0-9]|0[Xx][0-9A-Fa-f][0-9A-Fa-f${sep}]*[G-Zg-z]|`
+            s += `0[Xx][0-9A-Fa-f][0-9A-Fa-f${sep}]*|`
           }
-          s += '\\d+)'
+          nof += `\\d[\\d${sep}]*[A-Za-z])`
+          s += `\\d[\\d${sep}]*)`
+        }
+        if (noFollow) {
+          this.dynamicGuard.push({
+            pat: new RegExp(nof),
+            tk: TK_NUMBER_NOFOLLOW
+          })
         }
         this.dynamicGuard.push({
           pat: new RegExp(s),

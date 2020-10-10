@@ -25,25 +25,34 @@
 import { Try, Failure } from './catcher'
 
 export class EOF {
-  toString() {
-    return 'lexeme error: unexpected EOF'
-  }
 }
 
 /** must be catched */
 export class LexFailure {
   msg: string
+  sourceName: string
   line: number
   column: number
 
-  constructor(msg: string, line: number, column: number) {
+  constructor(msg: string, sourceName: string, line: number, column: number) {
     this.msg = msg
+    this.sourceName = sourceName
     this.line = line
     this.column = column
   }
 
   toString() {
-    return `parse error: ${this.msg} at line ${this.line}, column ${this.column}`
+    return (this.sourceName.length > 0 ? `${this.sourceName} - ` : '') + `parse error` + ` at line ${this.line}, column ${this.column}: ${this.msg}`
+  }
+}
+
+export class UnexpectedEOF extends LexFailure {
+  constructor(sourceName: string) {
+    super('unexpected end of file', sourceName, 0, 0)
+  }
+
+  toString() {
+    return 'parse error' + (this.sourceName.length > 0 ? ` in ${this.sourceName}` : '') + ' : unexpected end of file'
   }
 }
 
@@ -71,9 +80,9 @@ export class Lexer {
   ruleSet: RuleSet
   sp: SourcePosition
 
-  constructor(ruleSet: RuleSet, source: string) {
+  constructor(ruleSet: RuleSet, source: string, sourceName?: string) {
     this.ruleSet = ruleSet
-    this.sp = new SourcePosition(source)
+    this.sp = new SourcePosition(source, sourceName)
   }
 
   show(): void {
@@ -148,7 +157,7 @@ export class Lexer {
             // parse escape character
             // \a 7,\b 8,\f 12,\n 10,\r 13,\t 9,\v 11,\\ 92,\' 39,\" 34,\? 63,\0 0,\255 255, \o377 0o377,\xff 0xff,\uffff 0xffff,\w1ffff String.fromCodePoint(0x1ffff)
             this.sp.advance()
-            if (this.sp.eof) throw new EOF()
+            if (this.sp.eof) throw new UnexpectedEOF(this.sp.name)
             switch (this.sp.char) {
               case 'a': s += String.fromCharCode(7); break
               case 'b': s += String.fromCharCode(8); break
@@ -167,12 +176,12 @@ export class Lexer {
                   for (let i = 0; i < 3;) {
                     this.sp.advance()
                     if (this.sp.eof) { // "...\o.EOF
-                      throw new EOF()
+                      throw new UnexpectedEOF(this.sp.name)
                     }
                     if (isOctal(this.sp.char)) {
                       n += this.sp.char
                     } else {
-                      throw new LexFailure('invalid octal escape character', this.sp.line, this.sp.column)
+                      throw new LexFailure('invalid octal escape character', this.sp.name, this.sp.line, this.sp.column)
                     }
                   }
                   s += String.fromCharCode(parseInt(n, 8))
@@ -184,12 +193,12 @@ export class Lexer {
                   for (let i = 0; i < 2;) {
                     this.sp.advance()
                     if (this.sp.eof) { // "...\x.EOF
-                      throw new EOF()
+                      throw new UnexpectedEOF(this.sp.name)
                     }
                     if (isHexadecimal(this.sp.char)) {
                       n += this.sp.char
                     } else {
-                      throw new LexFailure('invalid hexadecimal escape character', this.sp.line, this.sp.column)
+                      throw new LexFailure('invalid hexadecimal escape character', this.sp.name, this.sp.line, this.sp.column)
                     }
                   }
                   s += String.fromCharCode(parseInt(n, 16))
@@ -201,12 +210,12 @@ export class Lexer {
                   for (let i = 0; i < 4;) {
                     this.sp.advance()
                     if (this.sp.eof) { // "...\u.EOF
-                      throw new EOF()
+                      throw new UnexpectedEOF(this.sp.name)
                     }
                     if (isHexadecimal(this.sp.char)) {
                       n += this.sp.char
                     } else {
-                      throw new LexFailure('invalid Unicode-16 escape character', this.sp.line, this.sp.column)
+                      throw new LexFailure('invalid Unicode-16 escape character', this.sp.name, this.sp.line, this.sp.column)
                     }
                   }
                   s += String.fromCharCode(parseInt(n, 16))
@@ -218,12 +227,12 @@ export class Lexer {
                   for (let i = 0; i < 6;) {
                     this.sp.advance()
                     if (this.sp.eof) { // "...\w.EOF
-                      throw new EOF()
+                      throw new UnexpectedEOF(this.sp.name)
                     }
                     if (isHexadecimal(this.sp.char)) {
                       n += this.sp.char
                     } else {
-                      throw new LexFailure('invalid Unicode-32 escape character', this.sp.line, this.sp.column)
+                      throw new LexFailure('invalid Unicode-32 escape character', this.sp.name, this.sp.line, this.sp.column)
                     }
                   }
                   this.sp.advance()
@@ -248,11 +257,11 @@ export class Lexer {
                 }
                 break
               default:
-                throw new LexFailure('invalid escape character', this.sp.line, this.sp.column)
+                throw new LexFailure('invalid escape character', this.sp.name, this.sp.line, this.sp.column)
             }
           }
           if (eq(this.sp.char, '\n') && !quotation.multiline) {
-            throw new LexFailure('line break not allowed in this place', this.sp.line, this.sp.column)
+            throw new LexFailure('line break not allowed in this place', this.sp.name, this.sp.line, this.sp.column)
           }
           s += this.sp.char
           this.sp.advance()
@@ -262,64 +271,75 @@ export class Lexer {
       }
     }
 
-    // retrieve a word and judge whether it is a static token. this is an attempt to raise performance for well formatted source code.
-    let words = this.sp.rest.split(' ', 1)
-    if (words.length) {
-      let word = words[0]
-      let tk = this.ruleSet.staticGuard.get(word)
-      if (typeof tk === 'string') {
-        const line = this.sp.line
-        const column = this.sp.column
-        this.sp.advance(word.length)
-        return new Token(tk, word, line, column)
-      } else if (tk !== undefined) {
-        const line = this.sp.line
-        const column = this.sp.column
-        this.sp.advance(word.length)
-        return tk(new Token('', word, line, column))
-      }
-    }
-
-    // check every static rule
-    let staticKeys = this.ruleSet.staticGuard.keys()
-    for (let iter = staticKeys.next(); !iter.done; iter = staticKeys.next()) {
-      let key = iter.value
-      if (this.sp.rest.slice(0, key.length) === key) {
-        let tk = this.ruleSet.staticGuard.get(key)
+    let resultToken =
+    // a local lambda function to catch `this` and use `return` to control the flow
+    (() => {
+      // retrieve a word and judge whether it is a static token. this is an attempt to raise performance for well formatted source code.
+      let words = this.sp.rest.split(' ', 1)
+      if (words.length) {
+        let word = words[0]
+        let tk = this.ruleSet.staticGuard.get(word)
         if (typeof tk === 'string') {
           const line = this.sp.line
           const column = this.sp.column
-          this.sp.advance(key.length)
-          return new Token(tk, key, line, column)
-        } else {
+          this.sp.advance(word.length)
+          return new Token(tk, word, line, column)
+        } else if (tk !== undefined) {
           const line = this.sp.line
           const column = this.sp.column
-          this.sp.advance(key.length)
-          return tk!(new Token('', key, line, column))
+          this.sp.advance(word.length)
+          return tk(new Token('', word, line, column))
         }
       }
-    }
 
-    // check every dynamic rule
-    for (let i in this.ruleSet.dynamicGuard) {
-      let guard = this.ruleSet.dynamicGuard[i]
-      let m
-      if (m = this.sp.rest.match(guard.pat)) {
-        if (m !== null) {
-          const literal = m[0]
-          const line = this.sp.line
-          const column = this.sp.column
-          this.sp.advance(literal.length)
-          if (typeof guard.tk === 'string') {
-            return new Token(guard.tk, literal, line, column)
+      // check every static rule
+      let staticKeys = this.ruleSet.staticGuard.keys()
+      for (let iter = staticKeys.next(); !iter.done; iter = staticKeys.next()) {
+        let key = iter.value
+        if (this.sp.rest.slice(0, key.length) === key) {
+          let tk = this.ruleSet.staticGuard.get(key)
+          if (typeof tk === 'string') {
+            const line = this.sp.line
+            const column = this.sp.column
+            this.sp.advance(key.length)
+            return new Token(tk, key, line, column)
           } else {
-            return guard.tk(new Token('', literal, line, column))
+            const line = this.sp.line
+            const column = this.sp.column
+            this.sp.advance(key.length)
+            return tk!(new Token('', key, line, column))
           }
         }
       }
+
+      // check every dynamic rule
+      for (let i in this.ruleSet.dynamicGuard) {
+        let guard = this.ruleSet.dynamicGuard[i]
+        let m
+        if (m = this.sp.rest.match(guard.pat)) {
+          if (m !== null) {
+            const literal = m[0]
+            const line = this.sp.line
+            const column = this.sp.column
+            this.sp.advance(literal.length)
+            if (typeof guard.tk === 'string') {
+              return new Token(guard.tk, literal, line, column)
+            } else {
+              return guard.tk(new Token('', literal, line, column))
+            }
+          }
+        }
+      }
+
+      throw new LexFailure(`invalid token`, this.sp.name, this.sp.line, this.sp.column)
+    })()
+
+    // check built-in erroneous token types
+    if (resultToken.type === TK_NUMBER_NOFOLLOW) {
+      throw new LexFailure(`unexpected '${resultToken.literal}': missing separators between a number and indistinguishable stuff`, this.sp.name, resultToken.line, resultToken.column)
     }
 
-    throw new LexFailure('invalid token', this.sp.line, this.sp.column)
+    return resultToken
   }
 
   skipWhites() {
@@ -534,19 +554,19 @@ export class RuleSet {
         if (noFollow) {
           // number stick to some letters is forbidden. e.g. 1.1a
           this.dynamicGuard.push({
-            pat: new RegExp(`^[+\\-]?(\\d[\\d${sep}]*.[\\d${sep}]*(e[+\\-]?\\d[\\d${sep}]*)?)[A-Za-z]`),
+            pat: new RegExp(`^[+\\-]?(\\d[\\d${sep}]*\\.[\\d${sep}]*(e[+\\-]?\\d[\\d${sep}]*)?)[A-Za-z]`),
             tk: TK_NUMBER_NOFOLLOW
           })
         }
         this.dynamicGuard.push({
-          pat: new RegExp(`^[+\\-]?(\\d[\\d${sep}]*.[\\d${sep}]*(e[+\\-]?\\d[\\d${sep}]*)?)`),
+          pat: new RegExp(`^[+\\-]?(\\d[\\d${sep}]*\\.[\\d${sep}]*(e[+\\-]?\\d[\\d${sep}]*)?)`),
           tk: 'float'
         })
       } else {
         const f = presetConfig.numbers.float
         let s = '^'
         if (f.signed) s += '[+\\-]?'
-        s += `(\\d[\\d${sep}]*.[\\d${sep}]*`
+        s += `(\\d[\\d${sep}]*\\.[\\d${sep}]*`
         if (f.exp) s += `(e[+\\-]?\\d[\\d${sep}]*)?`
         s += ')'
         if (noFollow) {
@@ -775,11 +795,13 @@ function cleanCRLF(str: string): string {
 
 class SourcePosition {
   /* history is not used currently */
+  name: string
   sourceZipper: { history: string, future: string }
   line: number
   column: number
 
-  constructor(source: string) {
+  constructor(source: string, name?: string) {
+    this.name = name || ''
     source = cleanCRLF(source)
     this.sourceZipper = {
       history: '',
@@ -801,7 +823,7 @@ class SourcePosition {
 
   private _step() {
     if (this.eof) {
-      throw new EOF()
+      throw new UnexpectedEOF(this.name)
     }
     if (this.char === '\r') {
     }

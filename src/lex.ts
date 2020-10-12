@@ -23,8 +23,10 @@
  */
 
 import { Try, Failure } from './catcher'
+import JSBI from 'jsbi'
 
 export class EOF {
+  toString() { return 'EOF' }
 }
 
 /** must be catched */
@@ -274,7 +276,7 @@ export class Lexer {
           this.sp.advance()
         }
         this.sp.advance(quotation.stop.length)
-        return new Token(quotation.tokenType, s, startLine, startColumn)
+        return new Token(quotation.tokenType, s, this.sp.name, startLine, startColumn)
       }
     }
 
@@ -290,12 +292,12 @@ export class Lexer {
           const line = this.sp.line
           const column = this.sp.column
           this.sp.advance(word.length)
-          return new Token(tk, word, line, column)
+          return new Token(tk, word, this.sp.name, line, column)
         } else if (tk !== undefined) {
           const line = this.sp.line
           const column = this.sp.column
           this.sp.advance(word.length)
-          return tk(new Token('', word, line, column))
+          return tk(new Token('', word, this.sp.name, line, column))
         }
       }
 
@@ -309,12 +311,12 @@ export class Lexer {
             const line = this.sp.line
             const column = this.sp.column
             this.sp.advance(key.length)
-            return new Token(tk, key, line, column)
+            return new Token(tk, key, this.sp.name, line, column)
           } else {
             const line = this.sp.line
             const column = this.sp.column
             this.sp.advance(key.length)
-            return tk!(new Token('', key, line, column))
+            return tk!(new Token('', key, this.sp.name, line, column))
           }
         }
       }
@@ -330,9 +332,9 @@ export class Lexer {
             const column = this.sp.column
             this.sp.advance(literal.length)
             if (typeof guard.tk === 'string') {
-              return new Token(guard.tk, literal, line, column)
+              return new Token(guard.tk, literal, this.sp.name, line, column)
             } else {
-              return guard.tk(new Token('', literal, line, column))
+              return guard.tk(new Token('', literal, this.sp.name, line, column))
             }
           }
         }
@@ -405,14 +407,16 @@ export class Lexer {
 }
 
 export class Token {
+  sourceName: string
   type: string
   literal: string
   line: number
   column: number
 
-  constructor(type: string, literal: string, line: number, column: number) {
+  constructor(type: string, literal: string, sourceName: string, line: number, column: number) {
     this.type = type
     this.literal = literal
+    this.sourceName = sourceName
     this.line = line
     this.column = column
   }
@@ -881,4 +885,122 @@ class SourcePosition {
     sp.column = this.column
     return sp
   }
+}
+
+// JavaScript can safely represent integer between -2^53(-9007199254740992) and 2^53(9007199254740992)
+// But bitwise shift can only happen under -2^31 to 2^31 - 1. Actually, JavaScript << and >> operators
+// cut off the integer to its lower 32 bit and shift with the sign of 32-bit integer (ROL and ROR).
+// For integer bigger than 32-bit, use JSBI instead.
+export type SafeInt = Int32 | JSBI
+
+export class Int32 {
+  value: number
+
+  private constructor() {
+    this.value = 0
+  }
+
+  /**
+   * @param value Required a valid 32-bit integer. Use `Int32.cast` to cast the number first if you are not sure. Or use `Int32.test` to make decisions yourself.
+   */
+  static take(value: number): Int32 {
+    if (Int32.test(value)) {
+      let i = new Int32()
+      i.value = value
+      return i
+    } else {
+      throw new Error(`value ${value} is not a valid 32-bit integer`)
+    }
+  }
+
+  static test(value: number): boolean {
+    return value >> 0 !== value
+  }
+
+  static cast(value: number): number {
+    return value >> 0
+  }
+}
+
+/**
+ * Given '-64', '-0x40', '-0o100', '-0b01000000', will produce -64, -64, -64, -64.
+ * @param octalPrefix0 Whether to process numbers starting with 0 as octal numbers (default processing 0o... octal numbers).
+ */
+export function parseInt32Safe(token: Token, octalPrefix0: boolean): number {
+  const literal = token.literal
+  if ((octalPrefix0 && (literal.startsWith('0') && literal.length > 1 || literal.startsWith('-0') && literal.length > 2)) || // 0123 -0123
+    literal.startsWith('0o') || literal.startsWith('-0o'))  // 0o123 -0o123
+  {
+    let digits
+    if (literal.startsWith('-0o')) {
+      digits = literal.slice(3)
+    } else if (literal.startsWith('0o') || literal.startsWith('-0')) {
+      digits = literal.slice(2)
+    } else {
+      digits = literal.slice(1)
+    }
+    if (digits.length > 11) {
+      throw new ParseFailure(`invalid 32-bit integer ${literal}`, token.sourceName, token.line, token.column)
+    } else {
+      let value = parseInt(digits, 8)
+      if (value > 0xffffffff) {
+        throw new ParseFailure(`invalid 32-bit integer ${literal}`, token.sourceName, token.line, token.column)
+      }
+      return literal[0] === '-' ? -value : value
+    }
+  } else if (literal.startsWith('0b') || literal.startsWith('-0b')) {
+    let digits
+    if (literal[0] === '-') {
+      digits = literal.slice(3)
+    } else {
+      digits = literal.slice(2)
+    }
+    if (digits.length > 32) {
+      throw new ParseFailure(`invalid 32-bit integer ${literal}`, token.sourceName, token.line, token.column)
+    }
+    return parseInt(digits, 2) * (literal[0] === '-' ? -1 : 1)
+  }
+  return parseInt(literal)
+}
+
+export function parseSafeInt(token: Token, octalPrefix0: boolean): SafeInt {
+    const literal = token.literal
+  if ((octalPrefix0 && (literal.startsWith('0') && literal.length > 1 || literal.startsWith('-0') && literal.length > 2)) || // 0123 -0123
+    literal.startsWith('0o') || literal.startsWith('-0o'))  // 0o123 -0o123
+  {
+    let digits
+    if (literal.startsWith('-0o')) {
+      digits = literal.slice(3)
+    } else if (literal.startsWith('0o') || literal.startsWith('-0')) {
+      digits = literal.slice(2)
+    } else {
+      digits = literal.slice(1)
+    }
+    if (digits.length > 11) {
+      console.warn('warning: JSBI.BigInt is not tested to ensure safety for \'0o\' octal literals')
+      return JSBI.BigInt(literal)
+      // throw new ParseFailure(`invalid 32-bit integer ${literal}`, token.sourceName, token.line, token.column)
+    } else {
+      let value = parseInt(digits, 8)
+      if (value > 0xffffffff) {
+        return JSBI.BigInt(value)
+        // throw new ParseFailure(`invalid 32-bit integer ${literal}`, token.sourceName, token.line, token.column)
+      }
+      return literal[0] === '-' ? Int32.take(-value) : Int32.take(value)
+    }
+  } else if (literal.startsWith('0b') || literal.startsWith('-0b')) {
+    let digits
+    if (literal[0] === '-') {
+      digits = literal.slice(3)
+    } else {
+      digits = literal.slice(2)
+    }
+    if (digits.length > 32) {
+      console.warn('warning: JSBI.BigInt is not tested to ensure safety for \'0b\' binary literals')
+      return JSBI.BigInt(literal)
+      // throw new ParseFailure(`invalid 32-bit integer ${literal}`, token.sourceName, token.line, token.column)
+    }
+    return Int32.take(parseInt(digits, 2) * (literal[0] === '-' ? -1 : 1))
+  }
+  return Int32.take(parseInt(literal))
 }

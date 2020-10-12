@@ -28,7 +28,7 @@ export class EOF {
 }
 
 /** must be catched */
-export class LexFailure {
+export class ParseFailure {
   msg: string
   sourceName: string
   line: number
@@ -41,12 +41,16 @@ export class LexFailure {
     this.column = column
   }
 
+  bind(other: ParseFailure): ParseFailure {
+    return new ParseFailure(`${this};\n${other}`, '', 0, 0)
+  }
+
   toString() {
-    return (this.sourceName.length > 0 ? `${this.sourceName} - ` : '') + `parse error` + ` at line ${this.line}, column ${this.column}: ${this.msg}`
+    return (this.sourceName.length > 0 ? `${this.sourceName} - ` : '') + `parse error` + (this.line > 0 && this.column > 0 ? ` at line ${this.line}, column ${this.column}: ${this.msg}` : '')
   }
 }
 
-export class UnexpectedEOF extends LexFailure {
+export class UnexpectedEOF extends ParseFailure {
   constructor(sourceName: string) {
     super('unexpected end of file', sourceName, 0, 0)
   }
@@ -87,8 +91,8 @@ export class Lexer {
 
   show(): void {
     while (true) {
-      console.log(Try<Token, LexFailure | EOF>(() => this.next()).unwrapOr(err => {
-        if (err instanceof LexFailure) {
+      console.log(Try<Token, ParseFailure | EOF>(() => this.next()).unwrapOr(err => {
+        if (err instanceof ParseFailure) {
           console.error(err.toString())
           return new Failure(1)
         } else if (err instanceof EOF) {
@@ -102,9 +106,9 @@ export class Lexer {
     const ts = []
     while (true) {
       try {
-        ts.push(Try<Token, LexFailure | EOF>(() => this.next()).unwrap())
+        ts.push(Try<Token, ParseFailure | EOF>(() => this.next()).unwrap())
       } catch (e) {
-        if (e instanceof LexFailure) {
+        if (e instanceof ParseFailure) {
           console.error(e)
           break
         } else if (e instanceof EOF) {
@@ -120,9 +124,9 @@ export class Lexer {
   *iterate(): Generator<Token> {
     while (true) {
       try {
-        yield Try<Token, LexFailure | EOF>(() => this.next()).unwrap()
+        yield Try<Token, ParseFailure | EOF>(() => this.next()).unwrap()
       } catch (e) {
-        if (e instanceof LexFailure) {
+        if (e instanceof ParseFailure) {
           console.error(e)
           break
         } else if (e instanceof EOF) {
@@ -134,7 +138,10 @@ export class Lexer {
     }
   }
 
-  // throws tokenizing errors
+  /**
+   * Resolves the next token, possibly throwing `EOF` (peaceful end of file) or `ParseFailure` (unacceptable lexeme error).
+   * Make sure to check at least `EOF` if you do not want an end of file when calling this method.
+   */
   next(): Token {
     if (this.ruleSet.skipSpaces) {
       this.skipWhites()
@@ -181,7 +188,7 @@ export class Lexer {
                     if (isOctal(this.sp.char)) {
                       n += this.sp.char
                     } else {
-                      throw new LexFailure('invalid octal escape character', this.sp.name, this.sp.line, this.sp.column)
+                      throw new ParseFailure('invalid octal escape character', this.sp.name, this.sp.line, this.sp.column)
                     }
                   }
                   s += String.fromCharCode(parseInt(n, 8))
@@ -198,7 +205,7 @@ export class Lexer {
                     if (isHexadecimal(this.sp.char)) {
                       n += this.sp.char
                     } else {
-                      throw new LexFailure('invalid hexadecimal escape character', this.sp.name, this.sp.line, this.sp.column)
+                      throw new ParseFailure('invalid hexadecimal escape character', this.sp.name, this.sp.line, this.sp.column)
                     }
                   }
                   s += String.fromCharCode(parseInt(n, 16))
@@ -215,7 +222,7 @@ export class Lexer {
                     if (isHexadecimal(this.sp.char)) {
                       n += this.sp.char
                     } else {
-                      throw new LexFailure('invalid Unicode-16 escape character', this.sp.name, this.sp.line, this.sp.column)
+                      throw new ParseFailure('invalid Unicode-16 escape character', this.sp.name, this.sp.line, this.sp.column)
                     }
                   }
                   s += String.fromCharCode(parseInt(n, 16))
@@ -232,7 +239,7 @@ export class Lexer {
                     if (isHexadecimal(this.sp.char)) {
                       n += this.sp.char
                     } else {
-                      throw new LexFailure('invalid Unicode-32 escape character', this.sp.name, this.sp.line, this.sp.column)
+                      throw new ParseFailure('invalid Unicode-32 escape character', this.sp.name, this.sp.line, this.sp.column)
                     }
                   }
                   this.sp.advance()
@@ -257,11 +264,11 @@ export class Lexer {
                 }
                 break
               default:
-                throw new LexFailure('invalid escape character', this.sp.name, this.sp.line, this.sp.column)
+                throw new ParseFailure('invalid escape character', this.sp.name, this.sp.line, this.sp.column)
             }
           }
           if (eq(this.sp.char, '\n') && !quotation.multiline) {
-            throw new LexFailure('line break not allowed in this place', this.sp.name, this.sp.line, this.sp.column)
+            throw new ParseFailure('line break not allowed in this place', this.sp.name, this.sp.line, this.sp.column)
           }
           s += this.sp.char
           this.sp.advance()
@@ -331,15 +338,31 @@ export class Lexer {
         }
       }
 
-      throw new LexFailure(`invalid token`, this.sp.name, this.sp.line, this.sp.column)
+      throw new ParseFailure(`invalid token`, this.sp.name, this.sp.line, this.sp.column)
     })()
 
     // check built-in erroneous token types
     if (resultToken.type === TK_NUMBER_NOFOLLOW) {
-      throw new LexFailure(`unexpected '${resultToken.literal}': missing separators between a number and indistinguishable stuff`, this.sp.name, resultToken.line, resultToken.column)
+      throw new ParseFailure(`unexpected '${resultToken.literal}': missing separators between a number and indistinguishable stuff`, this.sp.name, resultToken.line, resultToken.column)
     }
 
     return resultToken
+  }
+
+  /**
+   * Make sure to throw custom error in `onEOF` handler, or an `UnexpectedEOF` error will be thrown.
+   */
+  nextExceptEOF(onEOF?: () => void): Token {
+    try {
+      return this.next()
+    } catch (e) {
+      if (e instanceof EOF) {
+        onEOF = onEOF || function() {}
+        onEOF()
+        throw new UnexpectedEOF(this.sp.name)
+      }
+      throw e
+    }
   }
 
   skipWhites() {
@@ -372,6 +395,12 @@ export class Lexer {
         }
       }
     }
+  }
+
+  clone(): Lexer {
+    const lexer = new Lexer(this.ruleSet, this.sp.sourceZipper.future, this.sp.name)
+    lexer.sp = this.sp.clone()
+    return lexer
   }
 }
 
@@ -844,5 +873,12 @@ class SourcePosition {
       throw new RangeError('lexer: getting char while EOF')
     }
     return this.sourceZipper.future[0]
+  }
+
+  clone(): SourcePosition {
+    const sp = new SourcePosition(this.sourceZipper.future, this.name)
+    sp.line = this.line
+    sp.column = this.column
+    return sp
   }
 }

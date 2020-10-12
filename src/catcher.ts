@@ -18,7 +18,10 @@ class Catcher<T, E> {
 
   /**
    * Retrieves the data returned by the predicate, on error ends the program.
-   * @param errHandler argument `err` is the exception thrown by the predicate; the return value of this handler should be a valid value for use if you want the program to resume, or `null` if you want peaceful shutdown, or `undefined` if you want to rethrow the error.
+   * @param errHandler argument `err` is the exception thrown by the predicate;
+   * the return value of this handler should be a valid value for use if you want the program to resume,
+   * or `null` (`IGNORE`) if you want peaceful shutdown, or `undefined` (`RETHROW`) if you want to rethrow the error,
+   * or `FAIL_EXIT(code)` if you want to exit the program with an error code.
    */
   unwrapOr(errHandler: (err: E) => T | Failure | null | undefined): T {
     try {
@@ -40,4 +43,10 @@ class Catcher<T, E> {
 
 export function Try<T, E>(predicate: () => T): Catcher<T, E> {
   return new Catcher<T, E>(predicate)
+}
+
+export const RETHROW = undefined
+export const IGNORE = null
+export function FAIL_EXIT(code: number) {
+  return new Failure(code)
 }

@@ -44,11 +44,11 @@ export class ParseFailure {
   }
 
   bind(other: ParseFailure): ParseFailure {
-    return new ParseFailure(`${this};\n${other}`, '', 0, 0)
+    return new ParseFailure(`\n${this};\n${other}`, '', 0, 0)
   }
 
   toString() {
-    return (this.sourceName.length > 0 ? `${this.sourceName} - ` : '') + `parse error` + (this.line > 0 && this.column > 0 ? ` at line ${this.line}, column ${this.column}: ${this.msg}` : '')
+    return (this.sourceName.length > 0 ? `${this.sourceName} - ` : '') + `parse error` + (this.line > 0 && this.column > 0 ? ` at line ${this.line}, column ${this.column}` : '') + `: ${this.msg}`
   }
 }
 

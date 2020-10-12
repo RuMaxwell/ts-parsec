@@ -6,7 +6,7 @@ line = cell >> (char ',' >> cells)
 char :: Parsec String () Char
  */
 
-import { Lexer, Token, ParseFailure } from './lex'
+import { Lexer, Token, ParseFailure, EOF } from './lex'
 
 /**
  * maximum repeat count of a `many` or `more` parser
@@ -29,7 +29,7 @@ export class Lazy<T> {
       return this._value
     } else {
       this._value = this.value()
-      return this.value()
+      return this._value
     }
   }
 }
@@ -75,21 +75,6 @@ export class Parser<ResultType> {
     return new Lazy(() => this.bind(next))
   }
 
-  /** monadic `>>=` operator (chain version) */
-  saveThen<NextType>(name: string, next: Lazy<Parser<NextType>>): Parser<NextType> {
-    return new Parser(async (lexer: Lexer) => {
-      next.eval().savedValues[name] = await this.parse(lexer)
-      this.nickname = name
-      return next.eval().parse(lexer)
-    }, this.savedValues)
-  }
-
-  /** monadic `>>=` operator (chain version) */
-  saveThenLazy<NextType>(name: string, next: Lazy<Parser<NextType>>): Lazy<Parser<NextType>> {
-    return new Lazy(() => this.saveThen(name, next))
-  }
-
-
   // combinators
   /**
    * Not consuming the input, specify `this` parser cannot followed by a sequence that `following` parser accepts.
@@ -123,45 +108,21 @@ export class Parser<ResultType> {
     return this.notFollowedByLazy(anyTokenLazy()).eval().expect('end of file')
   }
 
-
-  // utilities
-  /** Ends the rule and returns its result when parse succeeds. */
-  end(): Parser<ResultType>
-  /** Ends the rule and returns a specified result named by nickname when parse succeeds. */
-  end<T>(name: string): Parser<T>
-  /** Ends the rule and returns a result composed by the function when parse succeeds. */
-  end<T>(composer: (savedValues: { [keys: string]: any }) => T): Parser<T>
-  end<T>(name?: string | ((savedValues: { [keys: string]: any }) => T)): Parser<T | ResultType> {
+  /** Returns a new parser that generate the translated result of `this` parser. */
+  translate<ToType>(translation: (result: ResultType) => ToType): Parser<ToType> {
     return new Parser(async (lexer: Lexer) => {
       const result = await this.parse(lexer)
-      if (typeof name === 'string') {
-        return this.savedValues[name]
-      } else if (typeof name === 'function') {
-        return name(this.savedValues)
-      } else {
-        return result
-      }
+      return translation(result)
     }, this.savedValues)
   }
 
-  /** Saves itself and ends the rules; returns its result when parse succeeds. */
-  save(thisName: string): Parser<ResultType>
-  /** Saves itself and ends the rules; returns a specified result by nickname when parse succeeds. */
-  save<T>(thisName: string, refName: string): Parser<T>
-  /** Saves itself and ends the rules; returns a result composed by the function when parse succeeds. */
-  save<T>(thisName: string, composer: (savedValues: { [keys: string]: any }) => T): Parser<T>
-  save<T>(thisName: string, refName?: string | ((savedValues: { [keys: string]: any }) => T)): Parser<T | ResultType> {
-    return new Parser(async (lexer: Lexer) => {
-      const result = await this.parse(lexer)
-      this.savedValues[thisName] = result
-      if (typeof refName === 'string') {
-        return this.savedValues[name]
-      } else if (typeof refName === 'function') {
-        return refName(this.savedValues)
-      } else {
-        return result
-      }
-    }, this.savedValues)
+
+  // utilities
+  /** Ends the rule with a given result when parse succeeds. */
+  end<T>(value: T): Parser<T> {
+    return new Parser(async (_) => {
+      return value
+    })
   }
 
   lazy(): Lazy<Parser<ResultType>> {
@@ -280,9 +241,18 @@ export function many<T>(one: Lazy<Parser<T>>): Parser<T[]> {
   const result: T[] = []
   return new Parser(async (lexer: Lexer) => {
     for (let i = 0; i < MAX_REPEAT; i++) {
-      const r = await one.eval().parse(lexer)
-      result.push(r)
+      try {
+        const r = await one.eval().parse(lexer)
+        result.push(r)
+      } catch (e) {
+        if (e instanceof ParseFailure || e instanceof EOF) {
+          return result
+        } else {
+          throw e
+        }
+      }
     }
+    console.warn(`warning: pattern repeated too many times, some of the result are no longer parsed (maximum = ${MAX_REPEAT})`)
     return result
   }, one.eval().savedValues)
 }
@@ -312,9 +282,10 @@ export function moreLazy<T>(one: Lazy<Parser<T>>): Lazy<Parser<T[]>> {
  */
 export function alter<IfType, ElseType>(ifParser: Lazy<Parser<IfType>>, elseParser: Lazy<Parser<ElseType>>): Parser<IfType | ElseType> {
   return new Parser(async (lexer: Lexer) => {
+    const elseLexer = lexer.clone()
     const ifPromise = (async () => {
       try {
-        return ifParser.eval().parse(lexer)
+        return await ifParser.eval().parse(lexer)
       } catch (e) {
         if (e instanceof ParseFailure) {
           return e
@@ -325,7 +296,7 @@ export function alter<IfType, ElseType>(ifParser: Lazy<Parser<IfType>>, elsePars
     })()
     const elsePromise = (async () => {
       try {
-        return elseParser.eval().parse(lexer.clone())
+        return await elseParser.eval().parse(elseLexer)
       } catch (e) {
         if (e instanceof ParseFailure) {
           return e

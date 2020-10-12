@@ -1,7 +1,7 @@
 import * as rules from './lex-rules'
 import * as srcs from './testsrcs'
-import { alter, Lazy, optionalLazy, Parser, tokenLazy, token, trivialLazy, more } from '../src/parse'
-import { Lexer, parseInt32Safe } from '../src/lex'
+import { alter, Lazy, optionalLazy, Parser, tokenLazy, token, trivialLazy, more, trivial } from '../src/parse'
+import { Lexer, parseInt32Safe, Token } from '../src/lex'
 
 export namespace json {
   interface JsonObject {
@@ -13,30 +13,45 @@ export namespace json {
     value: JsonObject
   }
 
-  export function object(): Parser<JsonObject> {
-    return token('{').then(optionalLazy(new Lazy(json.attributes))).saveThen('attributes', tokenLazy('}')).eof().end<JsonObject>(values => {
-      return { attributes: values['attributes'] || [] }
-    })
-  }
-  export function attributes(): Parser<Attribute[]> {
-    return json.attribute().saveThen('attribute', new Lazy(json.restAttributes))
-  }
-  export function restAttributes(): Parser<Attribute[]> {
-    return alter(token(',').thenLazy(new Lazy(json.attributes)), trivialLazy([]))
-  }
-  export function attribute(): Parser<Attribute> {
-    return token('string').saveThen('attribute.name', tokenLazy(':')).then(new Lazy(json.object)).save<Attribute>('attribute.value', values => {
-      return { name: values['attribute.name'], value: values['attribute.value'] }
-    })
-  }
+  // export function object(): Parser<JsonObject> {
+  //   return token('{').then(optionalLazy(new Lazy(json.attributes))).saveThen('attributes', tokenLazy('}')).eof().end<JsonObject>(values => {
+  //     return { attributes: values['attributes'] || [] }
+  //   })
+  // }
+  // export function attributes(): Parser<Attribute[]> {
+  //   return json.attribute().saveThen('attribute', new Lazy(json.restAttributes))
+  // }
+  // export function restAttributes(): Parser<Attribute[]> {
+  //   return alter(token(',').thenLazy(new Lazy(json.attributes)), trivialLazy([]))
+  // }
+  // export function attribute(): Parser<Attribute> {
+  //   return token('string').saveThen('attribute.name', tokenLazy(':')).then(new Lazy(json.object)).save<Attribute>('attribute.value', values => {
+  //     return { name: values['attribute.name'], value: values['attribute.value'] }
+  //   })
+  // }
 
   export const lexer = new Lexer(rules.json, srcs.json, 'test.json')
 }
 
 export namespace test {
   export function ints(): Parser<number[]> {
-    return more(token('integer').save('number', values => parseInt32Safe(values['number'], false)).lazy())
+    return alter(
+      trivialLazy([]),
+      int().bindLazy(i => ints().bind(is => trivial(is.concat([i]))))
+    )
   }
 
-  export const lexer = new Lexer(rules.test, srcs.test, '.test')
+  export function twoInts(): Parser<[number, number]> {
+    return int().bind(int0 => int().bind(int1 => trivial([int0, int1])))
+  }
+
+  export function int(): Parser<number> {
+    return token('integer').translate(result => parseInt32Safe(result, false)).bind(int => token(';').translate(_ => int))
+  }
+
+  export function aOrb(): Parser<Token> {
+    return alter(tokenLazy('a'), tokenLazy('b'))
+  }
+
+  export const lexer = new Lexer(rules.test, srcs.test, 'test')
 }

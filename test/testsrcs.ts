@@ -20,4 +20,8 @@ export const json = JSON.stringify({
   a: 1, b: true, c: 'good', d: undefined, e: [1, 'wow', null], f: { x: 1, y: 'name', z: 'wow' }
 })
 
-export const test = '1 1'
+export const test = (function () {
+  const path = pathlib.resolve('./test/srcs/test')
+  const source = fs.readFileSync(path).toString()
+  return source
+})()

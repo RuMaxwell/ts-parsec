@@ -54,7 +54,7 @@ export class Parser<ResultType> {
     return new Parser(async (lexer: Lexer) => {
       await this.parse(lexer)
       return next.eval().parse(lexer)
-    }, this.savedValues)
+    })
   }
 
   /** monadic `>>` operator */
@@ -67,7 +67,7 @@ export class Parser<ResultType> {
     return new Parser(async (lexer: Lexer) => {
       const result = await this.parse(lexer)
       return next(result).parse(lexer)
-    }, this.savedValues)
+    })
   }
 
   /** monadic `>>=` operator (callback version) */
@@ -92,7 +92,7 @@ export class Parser<ResultType> {
           throw e
         }
       }
-    }, this.savedValues)
+    })
   }
 
   /**
@@ -113,7 +113,7 @@ export class Parser<ResultType> {
     return new Parser(async (lexer: Lexer) => {
       const result = await this.parse(lexer)
       return translation(result)
-    }, this.savedValues)
+    })
   }
 
 
@@ -145,7 +145,7 @@ export class Parser<ResultType> {
           throw e
         }
       }
-    }, this.savedValues)
+    })
   }
 
 
@@ -209,7 +209,7 @@ export function anyTokenLazy(): Lazy<Parser<Token>> {
  * If succeeds, returns the result, or else returns `undefined`.
  */
 export function optional<T>(what: Lazy<Parser<T>>): Parser<T | void> {
-  return alter(what, trivialLazy(undefined))
+  return parallel(what, trivialLazy(undefined))
 }
 
 /**
@@ -225,7 +225,7 @@ export function optionalLazy<T>(what: Lazy<Parser<T>>): Lazy<Parser<T | void>> {
  * If succeeds, returns the result, or else returns `[]`.
  */
 export function optionalList<T>(what: Lazy<Parser<T[]>>): Parser<T[]> {
-  return alter(what, trivialLazy([]))
+  return parallel(what, trivialLazy([]))
 }
 
 /**
@@ -254,7 +254,7 @@ export function many<T>(one: Lazy<Parser<T>>): Parser<T[]> {
     }
     console.warn(`warning: pattern repeated too many times, some of the result are no longer parsed (maximum = ${MAX_REPEAT})`)
     return result
-  }, one.eval().savedValues)
+  })
 }
 
 /** Parses *zero* or more occurrence of a sequence the parser accepts. */
@@ -273,14 +273,15 @@ export function moreLazy<T>(one: Lazy<Parser<T>>): Lazy<Parser<T[]>> {
 }
 
 /**
- * Alternative `<|>` operator, but with the support of different types of the results. It does not backtrack and consume the input to the maximum possibility.
+ * Parses two branches in parallel, with the support of different types of results. It does NOT backtrack and consume the input to the maximum possibility.
+ *
  * When parsing, the two parsers (`this` and `other`) parse in parallel. Each try to parse until they both succeed or failed.
  * If one fails, the branch dies and casts off its intermediate results.
  * If both fail, an error is thrown.
  * If both succeed but one consumes more tokens than the other, the former is taken and the latter is treated as failed.
  * If both succeed and consume the same number of tokens, the ambiguity is reported.
  */
-export function alter<IfType, ElseType>(ifParser: Lazy<Parser<IfType>>, elseParser: Lazy<Parser<ElseType>>): Parser<IfType | ElseType> {
+export function parallel<IfType, ElseType>(ifParser: Lazy<Parser<IfType>>, elseParser: Lazy<Parser<ElseType>>): Parser<IfType | ElseType> {
   return new Parser(async (lexer: Lexer) => {
     const elseLexer = lexer.clone()
     const ifPromise = (async () => {
@@ -325,19 +326,57 @@ export function alter<IfType, ElseType>(ifParser: Lazy<Parser<IfType>>, elsePars
         reject(err)
       })
     })
-  }, { ...ifParser.eval().savedValues, ...elseParser.eval().savedValues })
+  })
 }
 
 /**
- * Alternative `<|>` operator, but with the support of different types of the results. It does not backtrack and consume the input to the maximum possibility.
+ * Parses two branches in parallel, with the support of different types of results. It does NOT backtrack and consume the input to the maximum possibility.
+ *
  * When parsing, the two parsers (`this` and `other`) parse in parallel. Each try to parse until they both succeed or failed.
  * If one fails, the branch dies and casts off its intermediate results.
- * If both fail, an error is thrown.
+ * If both fail, a combined error is thrown.
  * If both succeed but one consumes more tokens than the other, the former is taken and the latter is treated as failed.
  * If both succeed and consume the same number of tokens, the ambiguity is reported.
  */
-export function alterLazy<IfType, ElseType>(ifParser: Lazy<Parser<IfType>>, elseParser: Lazy<Parser<ElseType>>): Lazy<Parser<IfType | ElseType>> {
-  return new Lazy(() => alter(ifParser, elseParser))
+export function parallelLazy<IfType, ElseType>(ifParser: Lazy<Parser<IfType>>, elseParser: Lazy<Parser<ElseType>>): Lazy<Parser<IfType | ElseType>> {
+  return new Lazy(() => parallel(ifParser, elseParser))
+}
+
+/**
+ * Alternative `<|>` operator, with the support of different types of results. It DOES backtrack when `ifParser` fails.
+ *
+ * The parser first tries to parse the `ifParser`, and if failed (consuming no input), parses the `elseParser`. If both failed, a combined error is thrown.
+ */
+export function ifElse<IfType, ElseType>(ifParser: Lazy<Parser<IfType>>, elseParser: Lazy<Parser<ElseType>>): Parser<IfType | ElseType> {
+  return new Parser(async (lexer: Lexer) => {
+    const elseLexer = lexer.clone()
+    try {
+      return await ifParser.eval().parse(lexer.clone())
+    } catch (e) {
+      if (e instanceof ParseFailure) {
+        try {
+          return await elseParser.eval().parse(elseLexer)
+        } catch (e1) {
+          if (e1 instanceof ParseFailure) {
+            throw e1.bind(e)
+          } else {
+            throw e1
+          }
+        }
+      } else {
+        throw e
+      }
+    }
+  })
+}
+
+/**
+ * Alternative `<|>` operator, with the support of different types of results. It DOES backtrack when `ifParser` fails.
+ *
+ * The parser first tries to parse the `ifParser`, and if failed (consuming no input), parses the `elseParser`. If both failed, a combined error is thrown.
+ */
+export function ifElseLazy<IfType, ElseType>(ifParser: Lazy<Parser<IfType>>, elseParser: Lazy<Parser<ElseType>>): Lazy<Parser<IfType | ElseType>> {
+  return new Lazy(() => ifElse(ifParser, elseParser))
 }
 
 /**
@@ -346,7 +385,7 @@ export function alterLazy<IfType, ElseType>(ifParser: Lazy<Parser<IfType>>, else
 export function test<T>(what: Lazy<Parser<T>>): Parser<T> {
   return new Parser(async (lexer: Lexer) => {
     return what.eval().parse(lexer.clone())
-  }, what.eval().savedValues)
+  })
 }
 
 /**

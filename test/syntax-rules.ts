@@ -1,6 +1,6 @@
 import * as rules from './lex-rules'
 import * as srcs from './testsrcs'
-import { alter, Lazy, optionalLazy, Parser, tokenLazy, token, trivialLazy, more, trivial } from '../src/parse'
+import { parallel, Lazy, optionalLazy, Parser, tokenLazy, token, trivialLazy, more, trivial, ifElse } from '../src/parse'
 import { Lexer, parseInt32Safe, Token } from '../src/lex'
 
 export namespace json {
@@ -35,9 +35,9 @@ export namespace json {
 
 export namespace test {
   export function ints(): Parser<number[]> {
-    return alter(
-      trivialLazy([]),
-      int().bindLazy(i => ints().bind(is => trivial(is.concat([i]))))
+    return ifElse(
+      int().bindLazy(i => ints().bind(is => trivial(is.concat([i])))),
+      trivialLazy([])
     )
   }
 
@@ -50,7 +50,7 @@ export namespace test {
   }
 
   export function aOrb(): Parser<Token> {
-    return alter(tokenLazy('a'), tokenLazy('b'))
+    return parallel(tokenLazy('a'), tokenLazy('b'))
   }
 
   export const lexer = new Lexer(rules.test, srcs.test, 'test')

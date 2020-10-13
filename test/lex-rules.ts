@@ -121,6 +121,7 @@ export const test = (function() {
   const ruleSet = new RuleSet(
     [
       { pattern: ';', tokenType: ';' },
+      { pattern: ',', tokenType: ',' },
       { pattern: 'a', tokenType: 'a' },
       { pattern: 'b', tokenType: 'b' },
     ],

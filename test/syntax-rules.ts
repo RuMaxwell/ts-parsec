@@ -1,6 +1,6 @@
 import * as rules from './lex-rules'
 import * as srcs from './testsrcs'
-import { parallel, Lazy, optionalLazy, Parser, tokenLazy, token, trivialLazy, more, trivial, ifElse } from '../src/parse'
+import { parallel, Lazy, optionalLazy, Parser, tokenLazy, token, trivialLazy, more, trivial, ifElse, manyLazy, many, attempt, attemptLazy, testLazy, ifElseLazy, tokenLiteral, moreSeparated, moreSeparatedOptionalEnd, optional, moreEndWith } from '../src/parse'
 import { Lexer, parseInt32Safe, Token } from '../src/lex'
 
 export namespace json {
@@ -14,31 +14,35 @@ export namespace json {
   }
 
   // export function object(): Parser<JsonObject> {
-  //   return token('{').then(optionalLazy(new Lazy(json.attributes))).saveThen('attributes', tokenLazy('}')).eof().end<JsonObject>(values => {
-  //     return { attributes: values['attributes'] || [] }
-  //   })
   // }
   // export function attributes(): Parser<Attribute[]> {
-  //   return json.attribute().saveThen('attribute', new Lazy(json.restAttributes))
   // }
   // export function restAttributes(): Parser<Attribute[]> {
-  //   return alter(token(',').thenLazy(new Lazy(json.attributes)), trivialLazy([]))
   // }
   // export function attribute(): Parser<Attribute> {
-  //   return token('string').saveThen('attribute.name', tokenLazy(':')).then(new Lazy(json.object)).save<Attribute>('attribute.value', values => {
-  //     return { name: values['attribute.name'], value: values['attribute.value'] }
-  //   })
   // }
 
   export const lexer = new Lexer(rules.json, srcs.json, 'test.json')
 }
 
 export namespace test {
+  export function intsEndByComma(): Parser<number[]> {
+    return moreEndWith(new Lazy(int), tokenLazy(',')).tag(intsEndByComma.name)
+  }
+
+  export function moreInts(): Parser<number[]> {
+    return more(new Lazy(int)).tag(moreInts.name)
+  }
+
+  export function manyInts(): Parser<number[]> {
+    return many(new Lazy(int)).tag(manyInts.name)
+  }
+
   export function ints(): Parser<number[]> {
     return ifElse(
-      int().bindLazy(i => ints().bind(is => trivial(is.concat([i])))),
+      int().bindLazy(i => ints().bind(is => trivial([i].concat(is)))),
       trivialLazy([])
-    )
+    ).tag(ints.name)
   }
 
   export function twoInts(): Parser<[number, number]> {
@@ -46,12 +50,14 @@ export namespace test {
   }
 
   export function int(): Parser<number> {
-    return token('integer').translate(result => parseInt32Safe(result, false)).bind(int => token(';').translate(_ => int))
+    return token('integer').translate(result => parseInt32Safe(result, false))
   }
 
-  export function aOrb(): Parser<Token> {
-    return parallel(tokenLazy('a'), tokenLazy('b'))
+  export function aa_ab(): Parser<Token | void> {
+    return ifElse(attemptLazy(token('a').thenLazy(tokenLazy('a'))), token('a').thenLazy(tokenLazy('b'))).eof()
   }
+
+  export const start = intsEndByComma
 
   export const lexer = new Lexer(rules.test, srcs.test, 'test')
 }

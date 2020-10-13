@@ -43,8 +43,8 @@ export class ParseFailure {
     this.column = column
   }
 
-  bind(other: ParseFailure): ParseFailure {
-    return new ParseFailure(`\n${this};\n${other}`, '', 0, 0)
+  combine(other: ParseFailure): ParseFailure {
+    return new ParseFailure(`\n${this}\n${other}`, '', 0, 0)
   }
 
   toString() {
@@ -826,7 +826,7 @@ function cleanCRLF(str: string): string {
   return chs.join('')
 }
 
-class SourcePosition {
+export class SourcePosition {
   /* history is not used currently */
   name: string
   sourceZipper: { history: string, future: string }
@@ -884,6 +884,27 @@ class SourcePosition {
     sp.line = this.line
     sp.column = this.column
     return sp
+  }
+
+  compareTo(other: SourcePosition): 'forward' | 'equal' | 'behind' | 'irrelevant' {
+    if (this.sourceZipper.future === other.sourceZipper.future && this.line === other.line && this.column === other.column && this.name === other.name) {
+      return 'equal'
+    } else if (this.name === other.name && this.sourceZipper.future.indexOf(other.sourceZipper.future) > -1) {
+      return 'behind'
+    } else if (this.name === other.name && other.sourceZipper.future.indexOf(this.sourceZipper.future) > -1) {
+      return 'forward'
+    } else {
+      return 'irrelevant'
+    }
+  }
+
+  assign(other: SourcePosition): ThisType<SourcePosition> {
+    this.name = other.name
+    this.sourceZipper.history = other.sourceZipper.history
+    this.sourceZipper.future = other.sourceZipper.future
+    this.line = other.line
+    this.column = other.column
+    return this
   }
 }
 

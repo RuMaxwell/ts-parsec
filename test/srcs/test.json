@@ -1,6 +1,16 @@
 {
-  "a": {
-    "a": {}
-  },
-  "b": {}
+  "int": 1,
+  "float": 2.0,
+  "string": "3",
+  "null": null,
+  "true": true,
+  "false": false,
+  "list": [
+    1, 2.0, "3", null, true, false, []
+  ],
+  "obj": {
+    "int": 1,
+    "string": "3",
+    "list": [{}]
+  }
 }

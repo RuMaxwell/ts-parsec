@@ -79,15 +79,15 @@ export class Parser<ResultType> {
    * Not consuming the input, specify `this` parser cannot followed by a sequence that `following` parser accepts.
    * If `this` is not followed with `following`, the generated parser succeeds. On any other condition (including `this` parser's failure), the generated parser fails.
    */
-  notFollowedBy<FollowType>(following: Lazy<Parser<FollowType>>): Parser<void> {
+  notFollowedBy<FollowType>(following: Lazy<Parser<FollowType>>): Parser<ResultType> {
     return new Parser(async (lexer: Lexer) => {
-      await this.parse(lexer)
+      const result = await this.parse(lexer)
       try {
         await testLazy(following).eval().parse(lexer)
         throw { notFollow: new ParseFailure((this._tag ? '`' + this._tag + '`' : '') + 'expected to not followed by ' + (following.eval()._tag ? '`' + following.eval()._tag + '`' : 'the pattern'), lexer.sp.name, lexer.sp.line, lexer.sp.column) }
       } catch (e) {
         if (e instanceof ParseFailure) {
-          return
+          return result
         } else if (e.notFollow) {
           throw e.notFollow
         } else {
@@ -101,12 +101,12 @@ export class Parser<ResultType> {
    * Not consuming the input, specify `this` parser cannot followed by a sequence that `following` parser accepts.
    * If `this` is not followed with `following`, the generated parser succeeds. On any other condition (including `this` parser's failure), the generated parser fails.
    */
-  notFollowedByLazy<FollowType>(following: Lazy<Parser<FollowType>>): Lazy<Parser<void>> {
+  notFollowedByLazy<FollowType>(following: Lazy<Parser<FollowType>>): Lazy<Parser<ResultType>> {
     return new Lazy(() => this.notFollowedBy(following))
   }
 
   /** Parses the end of file. */
-  eof(): Parser<void> {
+  eof(): Parser<ResultType> {
     return this.notFollowedBy(anyTokenLazy()).expect('end of file')
   }
 

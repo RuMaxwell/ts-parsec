@@ -1,0 +1,111 @@
+return ifElse(
+  int().bindLazy(i => ints().bind(is => trivial([i].concat(is)))),
+  trivialLazy([])
+)
+
+precedence
+(n,unary-pre)   $
+(n,unary-post)  + * ?
+(l,binary-in)   =>
+(n,binary-in)   =
+
+`
+{
+  i = 'integer' => $(x => parseInt32Safe(x, false))
+  ';'+
+  is = ints
+  $(is.concat(i))
+} | $([])
+`
+compress
+`{(i='integer'=>$(x=>parseInt32Safe(x,false)))';'+(is=ints)$(is.concat(i))}|$([])`
+
+|
+  {}
+    =
+      $i
+      int
+    +
+      ';'
+    =
+      $is
+      ints
+    $
+      is.concat(i)
+  $([])
+
+// CPS of {}
+>>=
+  int
+  i
+  >>
+    +
+      ';'
+    >>=
+      ints
+      is
+      $
+        is.concat(i)
+
+|
+  >>=
+    int
+    i
+    >>
+      +
+        ';'
+      >>=
+        ints
+        is
+        $
+          is.concat(i)
+  $([])
+
+IfElse(
+  int().bind(
+    i =>
+    more(token(';')).then(
+      ints().bindLazy(
+        is =>
+        trivial(is.concat(i))
+      )
+    )
+  ),
+  trivialLazy([])
+)
+
+$(...) where expected a parser => trivial(...)
+$(...) where expected a lazy parser => trivialLazy(...)
+
+>>= Pre Var Then where expected a parser => Pre.bind(Var => Then)
+>>= Pre Var Then where expected a lazy parser => Pre.bindLazy(Var => Then)
+  Pre must be a parser
+  name at Pre if name is nonterminal => name()
+  parser at Pre => parser
+
+  Var must be a valid JavaScript identifier
+
+  Then must be a parser
+  name at Then if name is nonterminal => name()
+  parser at Then => parser
+
+>> Pre Then where expected a parser => Pre.then(Then)
+>> Pre Then where expected a lazy parser => Pre.thenLazy(Then)
+  Pre: Same as >>= Pre
+
+  Then must be a lazy parser
+  name at Then if name is nonterminal => new Lazy(name)
+  parser at Then => parser.lazy()
+  lazy_parser at Then => lazy_parser
+
+'...' => token('...')
+
++ lazy_parser where expected a parser => more(lazy_parser)
++ lazy_parser where expected a lazy parser => moreLazy(lazy_parser)
+* lazy_parser where expected a parser => many(lazy_parser)
+* lazy_parser where expected a lazy parser => manyLazy(lazy_parser)
+? lazy_parser where expected a parser => optional(lazy_parser)
+? lazy_parser where expected a lazy parser => optionalLazy(lazy_parser)
+
+| If Else where expected a parser => IfElse(If, Else)
+| If Else where expected a lazy parser => IfElseLazy(If, Else)

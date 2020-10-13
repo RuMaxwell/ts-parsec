@@ -1,10 +1,16 @@
-import { test } from './syntax-rules'
+import { json } from './syntax-rules'
 
-test.start().parse(test.lexer)
-  .then(x => {
-    console.log(x)
-    if (!test.lexer.sp.eof) {
-      console.warn('warning: not consuming all input')
-    }
-  })
-  .catch(e => console.error(e.toString()))
+json.start().show(json.lexer)
+
+// json.start().parse(json.lexer)
+//   .then(x => {
+//     console.log(x)
+//     try {
+//       json.lexer.next()
+//     } catch (e) {
+//       if (!(e instanceof EOF)) {
+//         console.warn('warning: not consuming all input')
+//       }
+//     }
+//   })
+//   .catch(e => console.error(e.toString()))

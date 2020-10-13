@@ -13,12 +13,11 @@ export const jssa = (function() {
   return source
 })()
 
-/*
-{"a":1,"b":true,"c":"good","e":[1,"wow",null],"f":{"x":1,"y":"name","z":"wow"}}
-*/
-export const json = JSON.stringify({
-  a: 1, b: true, c: 'good', d: undefined, e: [1, 'wow', null], f: { x: 1, y: 'name', z: 'wow' }
-})
+export const json = (function() {
+  const path = pathlib.resolve('./test/srcs/test.json')
+  const source = fs.readFileSync(path).toString()
+  return source
+})()
 
 export const test = (function () {
   const path = pathlib.resolve('./test/srcs/test')

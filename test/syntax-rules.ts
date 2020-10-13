@@ -1,6 +1,6 @@
 import * as rules from './lex-rules'
 import * as srcs from './testsrcs'
-import { parallel, Lazy, optionalLazy, Parser, tokenLazy, token, trivialLazy, more, trivial, ifElse, manyLazy, many, attempt, attemptLazy, testLazy, ifElseLazy, tokenLiteral, moreSeparated, moreSeparatedOptionalEnd, optional, moreEndWith } from '../src/parse'
+import { parallel, Lazy, optionalLazy, Parser, tokenLazy, token, trivialLazy, more, trivial, ifElse, manyLazy, many, attempt, attemptLazy, testLazy, ifElseLazy, tokenLiteral, moreSeparated, moreSeparatedOptionalEnd, optional, moreEndWith, manySeparated } from '../src/parse'
 import { Lexer, parseInt32Safe, Token } from '../src/lex'
 
 export namespace json {
@@ -13,14 +13,17 @@ export namespace json {
     value: JsonObject
   }
 
-  // export function object(): Parser<JsonObject> {
-  // }
-  // export function attributes(): Parser<Attribute[]> {
-  // }
-  // export function restAttributes(): Parser<Attribute[]> {
-  // }
-  // export function attribute(): Parser<Attribute> {
-  // }
+  export function object(): Parser<JsonObject> {
+    return token('{').then(new Lazy(attributes)).bind(attrs => token('}').end({ attributes: attrs }))
+  }
+  export function attributes(): Parser<Attribute[]> {
+    return manySeparated(new Lazy(attribute), tokenLazy(','))
+  }
+  export function attribute(): Parser<Attribute> {
+    return token('string').bind(name => token(':').then(new Lazy(object)).bind(value => trivial({ name: name.literal, value })))
+  }
+
+  export const start = object
 
   export const lexer = new Lexer(rules.json, srcs.json, 'test.json')
 }

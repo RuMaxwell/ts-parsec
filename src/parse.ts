@@ -167,6 +167,21 @@ export class Parser<ResultType> {
   async parse(lexer: Lexer): Promise<ResultType> {
     return this.value
   }
+
+  show(lexer: Lexer) {
+    this.parse(lexer)
+      .then(x => {
+        console.log(x)
+        try {
+          lexer.next()
+        } catch (e) {
+          if (!(e instanceof EOF)) {
+            console.warn('warning: not consuming all input')
+          }
+        }
+      })
+      .catch(e => console.error(e.toString()))
+  }
 }
 
 /** A parser that results in `value` immediately without parsing. */

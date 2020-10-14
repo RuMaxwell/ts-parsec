@@ -471,7 +471,7 @@ export function ifElseLazy<IfType, ElseType>(ifParser: Lazy<Parser<IfType>>, els
  * If all fails, only the error of the one who consumes the most input is thrown. If multiple ones consume the same most input, a combined error of them is thrown.
  * Or else, the first successful result is returned.
  */
-export function choices<ResultType>(parsers: Lazy<Parser<any>>[]): Parser<ResultType> {
+export function choices<ResultType>(...parsers: Lazy<Parser<any>>[]): Parser<ResultType> {
   return new Parser(async (lexer: Lexer) => {
     let errs: { err: ParseFailure, sp: SourcePosition }[] = []
     for (let i = 0; i < parsers.length; i++) {
@@ -518,8 +518,8 @@ function mostConsumedErrors(errs: { err: ParseFailure, sp: SourcePosition }[]): 
  * If all fails, only the error of the one who consumes the most input is thrown. If multiple ones consume the same most input, a combined error of them is thrown.
  * Or else, the first successful result is returned.
  */
-export function choicesLazy<ResultType>(parsers: Lazy<Parser<any>>[]): Lazy<Parser<ResultType>> {
-  return new Lazy(() => choices(parsers))
+export function choicesLazy<ResultType>(...parsers: Lazy<Parser<any>>[]): Lazy<Parser<ResultType>> {
+  return new Lazy(() => choices(...parsers))
 }
 
 export function moreSeparated<T, SepT>(one: Lazy<Parser<T>>, separator: Lazy<Parser<SepT>>): Parser<T[]> {

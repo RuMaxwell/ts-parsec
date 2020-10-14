@@ -124,6 +124,8 @@ export const test = (function() {
       { pattern: ',', tokenType: ',' },
       { pattern: 'a', tokenType: 'a' },
       { pattern: 'b', tokenType: 'b' },
+      { pattern: 'c', tokenType: 'c' },
+      { pattern: 'd', tokenType: 'd' },
     ],
     {
       skipSpaces: true,

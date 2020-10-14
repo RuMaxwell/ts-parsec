@@ -43,12 +43,25 @@ export class ParseFailure {
     this.column = column
   }
 
-  combine(other: ParseFailure): ParseFailure {
-    return new ParseFailure(`\n${this}\n${other}`, '', 0, 0)
+  combine(...others: ParseFailure[]): ParseFailure {
+    return new ParseFailures(this, ...others)
   }
 
   toString() {
     return (this.sourceName.length > 0 ? `${this.sourceName} - ` : '') + `parse error` + (this.line > 0 && this.column > 0 ? ` at line ${this.line}, column ${this.column}` : '') + `: ${this.msg}`
+  }
+}
+
+export class ParseFailures extends ParseFailure {
+  pfs: ParseFailure[] = []
+
+  constructor(...pfs: ParseFailure[]) {
+    super('', '', 0, 0)
+    this.pfs = pfs
+  }
+
+  toString() {
+    return this.pfs.map(x => x.toString()).join('\n')
   }
 }
 

@@ -1,7 +1,27 @@
 import * as rules from './lex-rules'
 import * as srcs from './testsrcs'
 import { parallel, Lazy, optionalLazy, Parser, tokenLazy, token, trivialLazy, more, trivial, ifElse, manyLazy, many, attempt, attemptLazy, testLazy, ifElseLazy, tokenLiteral, moreSeparated, moreSeparatedOptionalEnd, optional, moreEndWith, manySeparated, choices } from '../src/parse'
-import { Lexer, parseInt32Safe, Token } from '../src/lex'
+import { Lexer, ParseFailure, parseInt32Safe, Token } from '../src/lex'
+
+// foldr :: [a] -> (a -> b -> b) -> b -> b
+function foldr<A, B>(container: A[], folder: (item: A, accumulation: B) => B, init: B): B {
+  if (container.length <= 0) { return init }
+  let acc = init
+  for (let i = container.length - 1; i >= 0; i--) {
+    acc = folder(container[i], acc)
+  }
+  return acc
+}
+
+function parserZero<T>(): Parser<T> {
+  return new Parser(async (lexer: Lexer) => {
+    throw new ParseFailure('', lexer.sp.name, lexer.sp.line, lexer.sp.column)
+  })
+}
+
+function choices1<ResultType>(...parsers: Lazy<Parser<any>>[]): Parser<ResultType> {
+  return foldr(parsers, ifElseLazy, new Lazy(() => parserZero<ResultType>())).eval()
+}
 
 export namespace json {
   interface JsonObject {
@@ -14,7 +34,7 @@ export namespace json {
   }
 
   export function object(): Parser<JsonObject> {
-    return choices([
+    return choices1(
       token('integer').translate(x => parseInt32Safe(x, false)).lazy(),
       token('float').translate(x => parseFloat(x.literal)).lazy(),
       token('null').end(null).lazy(),
@@ -23,7 +43,7 @@ export namespace json {
       token('string').translate(x => x.literal).lazy(),
       token('[').thenLazy(manySeparated(new Lazy(object), tokenLazy(',')).bindLazy(os => token(']').end(os))),
       token('{').then(new Lazy(attributes)).bindLazy(attrs => token('}').end({ attributes: attrs }))
-    ])
+    )
   }
   export function attributes(): Parser<Attribute[]> {
     return manySeparated(new Lazy(attribute), tokenLazy(','))
@@ -65,11 +85,16 @@ export namespace test {
     return token('integer').translate(result => parseInt32Safe(result, false))
   }
 
-  export function aa_ab(): Parser<Token | void> {
-    return ifElse(attemptLazy(token('a').thenLazy(tokenLazy('a'))), token('a').thenLazy(tokenLazy('b'))).eof()
+  export function a_b_c_d(): Parser<Token> {
+    return choices1(
+      tokenLazy('a'),
+      tokenLazy('b'),
+      tokenLazy('c'),
+      tokenLazy('d'),
+    )
   }
 
-  export const start = intsEndByComma
+  export const start = a_b_c_d
 
   export const lexer = new Lexer(rules.test, srcs.test, 'test')
 }

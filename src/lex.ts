@@ -24,12 +24,13 @@
 
 import { Try, Failure } from './catcher'
 import JSBI from 'jsbi'
+import { group } from 'console'
 
 export class EOF {
   toString() { return 'EOF' }
 }
 
-/** must be catched */
+/** must be caught */
 export class ParseFailure {
   msg: string
   sourceName: string
@@ -60,8 +61,18 @@ export class ParseFailures extends ParseFailure {
     this.pfs = pfs
   }
 
+  combine(...others: ParseFailure[]): ParseFailure {
+    const pfss = others.filter(x => x instanceof ParseFailures)
+    const pfs = others.filter(x => !(x instanceof ParseFailures))
+    this.pfs.push(...pfs)
+    for (let i = 0; i < pfss.length; i++) {
+      this.pfs.push(...(pfss[i] as ParseFailures).pfs)
+    }
+    return this
+  }
+
   toString() {
-    return this.pfs.map(x => x.toString()).join('\n')
+    return `${this.pfs.length} error(s):\n` + this.pfs.map(x => x.toString()).join('\n')
   }
 }
 
@@ -600,25 +611,25 @@ export class RuleSet {
         if (noFollow) {
           // number stick to some letters is forbidden. e.g. 1.1a
           this.dynamicGuard.push({
-            pat: new RegExp(`^[+\\-]?(\\d[\\d${sep}]*\\.[\\d${sep}]*(e[+\\-]?\\d[\\d${sep}]*)?)[A-Za-z]`),
+            pat: new RegExp(`^[+\\-]?(\\d[\\d${sep}]*(\\.[\\d${sep}]*)?e[+\\-]?\\d[\\d${sep}]*|\\d[\\d${sep}]*\\.[\\d${sep}]*)([A-DF-Za-df-z]|e[^\\d_+\\-]|e[+\\-][^\\d_])`),
             tk: TK_NUMBER_NOFOLLOW
           })
         }
         this.dynamicGuard.push({
-          pat: new RegExp(`^[+\\-]?(\\d[\\d${sep}]*\\.[\\d${sep}]*(e[+\\-]?\\d[\\d${sep}]*)?)`),
+          pat: new RegExp(`^[+\\-]?(\\d[\\d${sep}]*(\\.[\\d${sep}]*)?e[+\\-]?\\d[\\d${sep}]*|\\d[\\d${sep}]*\\.[\\d${sep}]*)`),
           tk: 'float'
         })
       } else {
         const f = presetConfig.numbers.float
         let s = '^'
         if (f.signed) s += '[+\\-]?'
-        s += `(\\d[\\d${sep}]*\\.[\\d${sep}]*`
-        if (f.exp) s += `(e[+\\-]?\\d[\\d${sep}]*)?`
-        s += ')'
+        s += '('
+        if (f.exp) s += `\\d[\\d${sep}]*(\\.[\\d${sep}]*)?e[+\\-]?\\d[\\d${sep}]*|`
+        s += `\\d[\\d${sep}]*\\.[\\d${sep}]*)`
         if (noFollow) {
-          // number stick to some letters is forbidden. e.g. 1.1a
+          // number stick to some letters is forbidden. e.g. 1.1a, 1.1e, 1.1ea, 1.1e-
           this.dynamicGuard.push({
-            pat: new RegExp(`${s}[A-Za-z]`),
+            pat: new RegExp(`${s}([A-DF-Za-df-z]|e[^\\d_+\\-]|e[+\\-][^\\d_]`),
             tk: TK_NUMBER_NOFOLLOW
           })
         }

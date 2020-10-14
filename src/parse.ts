@@ -486,7 +486,7 @@ export function choices<ResultType>(...parsers: Lazy<Parser<any>>[]): Parser<Res
         } else if (e instanceof ParseFailure) { // the last error
           errs = mostConsumedErrors(errs)
           for (let j = 0; j < errs.length; j++) {
-            e = e.combine(errs[j])
+            e = e.combine(errs[j].err)
           }
           throw e
         } else {

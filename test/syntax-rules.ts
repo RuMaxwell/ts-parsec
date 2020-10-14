@@ -15,7 +15,7 @@ function foldr<A, B>(container: A[], folder: (item: A, accumulation: B) => B, in
 
 function parserZero<T>(): Parser<T> {
   return new Parser(async (lexer: Lexer) => {
-    throw new ParseFailure('', lexer.sp.name, lexer.sp.line, lexer.sp.column)
+    throw new ParseFailure('mzero', lexer.sp.name, lexer.sp.line, lexer.sp.column)
   })
 }
 
@@ -34,12 +34,11 @@ export namespace json {
   }
 
   export function object(): Parser<JsonObject> {
-    return choices1(
+    return choices(
       token('integer').translate(x => parseInt32Safe(x, false)).lazy(),
       token('float').translate(x => parseFloat(x.literal)).lazy(),
       token('null').end(null).lazy(),
-      token('true').end(true).lazy(),
-      token('false').end(true).lazy(),
+      token('boolean').end(true).lazy(),
       token('string').translate(x => x.literal).lazy(),
       token('[').thenLazy(manySeparated(new Lazy(object), tokenLazy(',')).bindLazy(os => token(']').end(os))),
       token('{').then(new Lazy(attributes)).bindLazy(attrs => token('}').end({ attributes: attrs }))
@@ -86,15 +85,16 @@ export namespace test {
   }
 
   export function a_b_c_d(): Parser<Token> {
-    return choices1(
-      tokenLazy('a'),
-      tokenLazy('b'),
-      tokenLazy('c'),
-      tokenLazy('d'),
+    return choices(
+      token('integer').translate(x => parseInt32Safe(x, false)).lazy(),
+      token('float').translate(x => parseFloat(x.literal)).lazy(),
+      token('string').translate(x => x.literal).lazy(),
+      token('null').end(null).lazy(),
+      token('boolean').translate(x => x.literal === 'true').lazy(),
     )
   }
 
   export const start = a_b_c_d
 
-  export const lexer = new Lexer(rules.test, srcs.test, 'test')
+  export const lexer = new Lexer(rules.json, srcs.test, 'test')
 }

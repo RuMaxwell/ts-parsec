@@ -24,7 +24,6 @@
 
 import { Try, Failure } from './catcher'
 import JSBI from 'jsbi'
-import { group } from 'console'
 
 export class EOF {
   toString() { return 'EOF' }
@@ -62,13 +61,14 @@ export class ParseFailures extends ParseFailure {
   }
 
   combine(...others: ParseFailure[]): ParseFailure {
+    if (others.length === 0) { return this }
+
     const pfss = others.filter(x => x instanceof ParseFailures)
     const pfs = others.filter(x => !(x instanceof ParseFailures))
-    this.pfs.push(...pfs)
     for (let i = 0; i < pfss.length; i++) {
-      this.pfs.push(...(pfss[i] as ParseFailures).pfs)
+      pfs.push(...(pfss[i] as ParseFailures).pfs)
     }
-    return this
+    return new ParseFailures(...this.pfs.concat(pfs))
   }
 
   toString() {

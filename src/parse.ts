@@ -6,7 +6,7 @@ line = cell >> (char ',' >> cells)
 char :: Parsec String () Char
  */
 
-import { Lexer, Token, ParseFailure, EOF, SourcePosition } from './lex'
+import { Lexer, Token, ParseFailure, EOF, SourcePosition, ParseFailures } from './lex'
 
 /**
  * maximum repeat count of a `many` or `more` parser
@@ -50,10 +50,12 @@ export class Parser<ResultType> {
   // sequences
   /** monadic `>>` operator */
   then<NextType>(next: Lazy<Parser<NextType>>): Parser<NextType> {
-    return new Parser(async (lexer: Lexer) => {
+    const thenParser = new Parser(async (lexer: Lexer) => {
       await this.parse(lexer)
+      thenParser.tag(`(${this._tag} >> ${next.eval()._tag})`)
       return next.eval().parse(lexer)
-    })
+    }, `(${this._tag} >> ???)`)
+    return thenParser
   }
 
   /** monadic `>>` operator */
@@ -63,10 +65,13 @@ export class Parser<ResultType> {
 
   /** monadic `>>=` operator (callback version) */
   bind<NextType>(next: (result: ResultType) => Parser<NextType>): Parser<NextType> {
-    return new Parser(async (lexer: Lexer) => {
+    const bindParser = new Parser(async (lexer: Lexer) => {
       const result = await this.parse(lexer)
-      return next(result).parse(lexer)
-    })
+      const nextParser = next(result)
+      bindParser.tag(`(${this._tag} >>= ${nextParser._tag})`)
+      return nextParser.parse(lexer)
+    }, `(${this._tag} >>= ???)`)
+    return bindParser
   }
 
   /** monadic `>>=` operator (callback version) */
@@ -94,7 +99,7 @@ export class Parser<ResultType> {
           throw e
         }
       }
-    })
+    }, `notFollowedBy`)
   }
 
   /**
@@ -115,7 +120,7 @@ export class Parser<ResultType> {
     return new Parser(async (lexer: Lexer) => {
       const result = await this.parse(lexer)
       return translation(result)
-    })
+    }, `translate(${this._tag})`)
   }
 
   /** Ends the rule with a given result when parse succeeds. */
@@ -123,7 +128,7 @@ export class Parser<ResultType> {
     return new Parser(async (lexer: Lexer) => {
       await this.parse(lexer)
       return value
-    })
+    }, `end(${this._tag})`)
   }
 
 
@@ -154,7 +159,7 @@ export class Parser<ResultType> {
           throw e
         }
       }
-    })
+    }, `(${this._tag} <?> "${message}")`)
   }
 
 
@@ -173,14 +178,21 @@ export class Parser<ResultType> {
       .then(x => {
         console.log(x)
         try {
-          lexer.next()
+          const tk = lexer.next() // expected to throw EOF
+          console.warn('warning: not consuming all input')
         } catch (e) {
           if (!(e instanceof EOF)) {
             console.warn('warning: not consuming all input')
           }
         }
       })
-      .catch(e => console.error(e.toString()))
+      .catch(e => {
+        if (e instanceof ParseFailure) {
+          console.error(e.toString())
+        } else {
+          throw e
+        }
+      })
   }
 }
 
@@ -188,7 +200,7 @@ export class Parser<ResultType> {
 export function trivial<T>(value: T): Parser<T> {
   return new Parser(async () => {
     return value
-  })
+  }, `trivial(${value})`)
 }
 
 /** A parser that results in `value` immediately without parsing. */
@@ -210,7 +222,7 @@ export function token(tokenType: string): Parser<Token> {
       lexer.sp.assign(earlySp) // resume source position because this actually consumes no input
       throw new ParseFailure(`expected ${tokenType}, got ${token.type}`, lexer.sp.name, token.line, token.column)
     }
-  })
+  }, `token(${tokenType})`)
 }
 
 /** Parses a token. */
@@ -231,7 +243,7 @@ export function tokenLiteral(tokenType: string, literal: string): Parser<Token> 
       lexer.sp.assign(earlySp) // resume source position because this actually consumes no input
       throw new ParseFailure(`expected '${literal}', got '${token.literal}'`, lexer.sp.name, token.line, token.column)
     }
-  })
+  }, `tokenLiteral(${tokenType}, ${literal})`)
 }
 
 export function tokenLiteralLazy(tokenType: string, literal: string): Lazy<Parser<Token>> {
@@ -246,7 +258,7 @@ export function anyToken(): Parser<Token> {
       lexer.sp.assign(earlySp) // resume source position because this actually consumes no input
       throw new ParseFailure(`unexpected end of file, expected a token`, lexer.sp.name, lexer.sp.line, lexer.sp.column)
     })
-  })
+  }, 'anyToken')
 }
 
 /** Parses an arbitrary token. */
@@ -316,7 +328,7 @@ export function many<T>(one: Lazy<Parser<T>>): Parser<T[]> {
     }
     console.warn(`warning: pattern repeated too many times, some of the result are no longer parsed (maximum = ${MAX_REPEAT})`)
     return result
-  })
+  }, 'many')
 }
 
 /** Parses *zero* or more occurrence of a sequence the parser accepts. */
@@ -399,7 +411,7 @@ export function parallel<IfType, ElseType>(ifParser: Lazy<Parser<IfType>>, elseP
         reject(err)
       })
     })
-  })
+  }, 'parallel')
 }
 
 /**
@@ -453,7 +465,7 @@ export function ifElse<IfType, ElseType>(ifParser: Lazy<Parser<IfType>>, elsePar
         throw e
       }
     }
-  })
+  }, 'ifElse')
 }
 
 /**
@@ -478,23 +490,33 @@ export function choices<ResultType>(...parsers: Lazy<Parser<any>>[]): Parser<Res
       const newLexer = lexer.clone()
       try {
         const result = await parsers[i].eval().parse(newLexer)
+        lexer.sp.assign(newLexer.sp)
         return result
       } catch (e) {
         if (e instanceof ParseFailure && i + 1 < parsers.length) {
           errs.push({ err: e, sp: newLexer.sp.clone() })
           continue
         } else if (e instanceof ParseFailure) { // the last error
+          errs.push({ err: e, sp: newLexer.sp.clone() })
+          // console.log(errs.map(e => ({ msg: e.err.msg, rest: e.sp.rest, l: e.sp.line, c: e.sp.column })))
           errs = mostConsumedErrors(errs)
-          for (let j = 0; j < errs.length; j++) {
-            e = e.combine(errs[j].err)
+          // console.log('----------')
+          // console.log(errs.map(e => ({ msg: e.err.msg, rest: e.sp.rest, l: e.sp.line, c: e.sp.column })))
+          if (errs.length === 1) {
+            throw errs[0].err
+          } else {
+            e = errs[0].err
+            for (let j = 1; j < errs.length; j++) {
+              e = e.combine(errs[j].err)
+            }
+            throw e
           }
-          throw e
         } else {
           throw e
         }
       }
     }
-  })
+  }, 'choices')
 }
 
 function mostConsumedErrors(errs: { err: ParseFailure, sp: SourcePosition }[]): { err: ParseFailure, sp: SourcePosition }[] {
@@ -582,7 +604,7 @@ export function manyEndWithLazy<T, SepT>(one: Lazy<Parser<T>>, endWith: Lazy<Par
 export function test<T>(what: Lazy<Parser<T>>): Parser<T> {
   return new Parser(async (lexer: Lexer) => {
     return what.eval().parse(lexer.clone())
-  })
+  }, 'test')
 }
 
 /**
@@ -603,7 +625,7 @@ export function attempt<T>(what: Lazy<Parser<T>>): Parser<T> {
     const result = await what.eval().parse(newLexer) // if error here, lexer will keep the same
     lexer.sp.assign(newLexer.sp)
     return result
-  })
+  }, 'attempt')
 }
 
 /**

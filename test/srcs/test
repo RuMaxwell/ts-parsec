@@ -1,1 +1,1 @@
-1.1e-1
+[1, 1e-1, "123", null, true, false, [1, 1e-1, "123", null, true, false, []], { "this": [1, 1e-1, "123", null, [], {}], "ok?": "yes!" }]

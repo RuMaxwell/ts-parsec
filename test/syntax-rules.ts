@@ -24,31 +24,34 @@ function choices1<ResultType>(...parsers: Lazy<Parser<any>>[]): Parser<ResultTyp
 }
 
 export namespace json {
-  interface JsonObject {
-    attributes: any[]
-  }
+  export type JsonAny = number | string | boolean | null | JsonAny[] | json.JsonObject
 
-  interface Attribute {
+  export type JsonObject = { [attributes: string]: JsonAny }
+
+  export interface Attribute {
     name: string,
-    value: JsonObject
+    value: JsonAny
   }
 
   export function object(): Parser<JsonObject> {
     return choices(
       token('integer').translate(x => parseInt32Safe(x, false)).lazy(),
       token('float').translate(x => parseFloat(x.literal)).lazy(),
-      token('null').end(null).lazy(),
-      token('boolean').end(true).lazy(),
       token('string').translate(x => x.literal).lazy(),
-      token('[').thenLazy(manySeparated(new Lazy(object), tokenLazy(',')).bindLazy(os => token(']').end(os))),
-      token('{').then(new Lazy(attributes)).bindLazy(attrs => token('}').end({ attributes: attrs }))
+      token('null').end(null).lazy(),
+      token('boolean').translate(x => x.literal === 'true').lazy(),
+      token('[').thenLazy(manySeparated(new Lazy(object), tokenLazy(',')).bindLazy(xs => token(']').end(xs))),
+      token('{').thenLazy(manySeparated(
+        token('string').bindLazy(name => token(':').then(new Lazy(object)).bind(value => trivial<json.Attribute>({ name: name.literal, value }))),
+        tokenLazy(',')).bindLazy(xs => token('}').end((function () {
+          const obj: json.JsonObject = {}
+          xs.forEach(x => {
+            obj[x.name] = x.value
+          })
+          return obj
+        })()))
+      ),
     )
-  }
-  export function attributes(): Parser<Attribute[]> {
-    return manySeparated(new Lazy(attribute), tokenLazy(','))
-  }
-  export function attribute(): Parser<Attribute> {
-    return token('string').bind(name => token(':').then(new Lazy(object)).bind(value => trivial({ name: name.literal, value })))
   }
 
   export const start = () => object().eof()
@@ -84,17 +87,30 @@ export namespace test {
     return token('integer').translate(result => parseInt32Safe(result, false))
   }
 
-  export function a_b_c_d(): Parser<Token> {
+  export function a_b_c_d(): Parser<json.JsonAny> {
     return choices(
+      // token('integer').then(tokenLazy('float')).lazy(),
+      // token('integer').then(tokenLazy('integer')).then(tokenLazy('float')).lazy(),
       token('integer').translate(x => parseInt32Safe(x, false)).lazy(),
       token('float').translate(x => parseFloat(x.literal)).lazy(),
       token('string').translate(x => x.literal).lazy(),
       token('null').end(null).lazy(),
       token('boolean').translate(x => x.literal === 'true').lazy(),
+      token('[').thenLazy(manySeparated(new Lazy(a_b_c_d), tokenLazy(',')).bindLazy(xs => token(']').end(xs))),
+      token('{').thenLazy(manySeparated(
+        token('string').bindLazy(name => token(':').then(new Lazy(a_b_c_d)).bind(value => trivial<json.Attribute>({ name: name.literal, value }))),
+        tokenLazy(',')).bindLazy(xs => token('}').end((function () {
+          const obj: json.JsonObject = {}
+          xs.forEach(x => {
+            obj[x.name] = x.value
+          })
+          return obj
+        })()))
+      ),
     )
   }
 
   export const start = a_b_c_d
 
-  export const lexer = new Lexer(rules.json, srcs.test, 'test')
+  export const lexer = new Lexer(rules.test, srcs.test, 'test')
 }

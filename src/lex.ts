@@ -1,7 +1,11 @@
 /**
+ * @author RuMaxwell <935906960@qq.com>
+ * @description A configurable tokenizer.
+ */
+
+/**
  * Usage:
  * import { EOF, LexFailure, Token, RuleSet, Lexer } from 'path/to/lex'
- * import { Failure, Try } from 'path/to/catcher'
  *
  * const ruleSet = new RuleSet({
  *   ...
@@ -22,7 +26,6 @@
  * }
  */
 
-import { Try, Failure } from './catcher'
 import JSBI from 'jsbi'
 
 export class EOF {
@@ -82,7 +85,7 @@ export class UnexpectedEOF extends ParseFailure {
   }
 
   toString() {
-    return 'parse error' + (this.sourceName.length > 0 ? ` in ${this.sourceName}` : '') + ' : unexpected end of file'
+    return (this.sourceName.length > 0 ? `${this.sourceName} - ` : '') + 'parse error: unexpected end of file'
   }
 }
 
@@ -117,14 +120,18 @@ export class Lexer {
 
   show(): void {
     while (true) {
-      console.log(Try<Token, ParseFailure | EOF>(() => this.next()).unwrapOr(err => {
-        if (err instanceof ParseFailure) {
-          console.error(err.toString())
-          return new Failure(1)
-        } else if (err instanceof EOF) {
-          return null
+      try {
+        console.log(this.next())
+      } catch (e) {
+        if (e instanceof ParseFailure) {
+          console.error(e.toString())
+          process.exit(1)
+        } else if (e instanceof EOF) {
+          return
+        } else {
+          throw e
         }
-      }))
+      }
     }
   }
 
@@ -132,7 +139,7 @@ export class Lexer {
     const ts = []
     while (true) {
       try {
-        ts.push(Try<Token, ParseFailure | EOF>(() => this.next()).unwrap())
+        ts.push(this.next())
       } catch (e) {
         if (e instanceof ParseFailure) {
           console.error(e)
@@ -150,7 +157,7 @@ export class Lexer {
   *iterate(): Generator<Token> {
     while (true) {
       try {
-        yield Try<Token, ParseFailure | EOF>(() => this.next()).unwrap()
+        yield this.next()
       } catch (e) {
         if (e instanceof ParseFailure) {
           console.error(e)
@@ -192,21 +199,25 @@ export class Lexer {
             this.sp.advance()
             if (this.sp.eof) throw new UnexpectedEOF(this.sp.name)
             switch (this.sp.char) {
-              case 'a': s += String.fromCharCode(7); break
-              case 'b': s += String.fromCharCode(8); break
-              case 'f': s += String.fromCharCode(12); break
-              case 'n': s += String.fromCharCode(10); break
-              case 'r': s += String.fromCharCode(13); break
-              case 't': s += String.fromCharCode(9); break
-              case 'v': s += String.fromCharCode(11); break
-              case '\\': s += '\\'; break
-              case '\'': s += '\''; break
-              case '"': s += '"'; break
-              case '?': s += '?'; break
+              case 'a': s += String.fromCharCode(7); this.sp.advance(); break
+              case 'b': s += String.fromCharCode(8); this.sp.advance(); break
+              case 'f': s += String.fromCharCode(12); this.sp.advance(); break
+              case 'n': s += String.fromCharCode(10); this.sp.advance(); break
+              case 'r': s += String.fromCharCode(13); this.sp.advance(); break
+              case 't': s += String.fromCharCode(9); this.sp.advance(); break
+              case 'v': s += String.fromCharCode(11); this.sp.advance(); break
+              // case '\\': s += '\\'; break
+              // case '\'': s += '\''; break
+              // case '"': s += '"'; break
+              // case '{': s += '{'; break
+              // case '}': s += '}'; break
+              // case '?': s += '?'; break
+              // case '$': s += '$'; break
+              // case '/': s += '/'; break
               case 'o': case 'O': // \o377
                 {
                   let n = ''
-                  for (let i = 0; i < 3;) {
+                  for (let i = 0; i < 3; i++) {
                     this.sp.advance()
                     if (this.sp.eof) { // "...\o.EOF
                       throw new UnexpectedEOF(this.sp.name)
@@ -218,12 +229,13 @@ export class Lexer {
                     }
                   }
                   s += String.fromCharCode(parseInt(n, 8))
+                  this.sp.advance()
                 }
                 break
               case 'x': case 'X': // \xff
                 {
                   let n = ''
-                  for (let i = 0; i < 2;) {
+                  for (let i = 0; i < 2; i++) {
                     this.sp.advance()
                     if (this.sp.eof) { // "...\x.EOF
                       throw new UnexpectedEOF(this.sp.name)
@@ -235,12 +247,13 @@ export class Lexer {
                     }
                   }
                   s += String.fromCharCode(parseInt(n, 16))
+                  this.sp.advance()
                 }
                 break
               case 'u': case 'U': // \uffff
                 {
                   let n = ''
-                  for (let i = 0; i < 4;) {
+                  for (let i = 0; i < 4; i++) {
                     this.sp.advance()
                     if (this.sp.eof) { // "...\u.EOF
                       throw new UnexpectedEOF(this.sp.name)
@@ -252,33 +265,49 @@ export class Lexer {
                     }
                   }
                   s += String.fromCharCode(parseInt(n, 16))
+                  this.sp.advance()
                 }
                 break
               case 'w': case 'W': // \w10ffff
                 {
                   let n = ''
-                  for (let i = 0; i < 6;) {
+                  for (let i = 0; i < 6; i++) {
                     this.sp.advance()
-                    if (this.sp.eof) { // "...\w.EOF
+                    if (this.sp.eof) { // "...\u.EOF
                       throw new UnexpectedEOF(this.sp.name)
                     }
                     if (isHexadecimal(this.sp.char)) {
                       n += this.sp.char
                     } else {
-                      throw new ParseFailure('invalid Unicode-32 escape character', this.sp.name, this.sp.line, this.sp.column)
+                      throw new ParseFailure('invalid Unicode-16 escape character', this.sp.name, this.sp.line, this.sp.column)
                     }
                   }
+                  s += String.fromCodePoint(parseInt(n, 16))
                   this.sp.advance()
-                  if (isHexadecimal(this.sp.char)) {
-                    n += this.sp.char
-                  }
-                  s += String.fromCharCode(parseInt(n, 16))
+                  // let n = ''
+                  // for (let i = 0; i < 6; i++) {
+                  //   this.sp.advance()
+                  //   if (this.sp.eof) { // "...\w.EOF
+                  //     throw new UnexpectedEOF(this.sp.name)
+                  //   }
+                  //   if (isHexadecimal(this.sp.char)) {
+                  //     n += this.sp.char
+                  //   } else {
+                  //     throw new ParseFailure('invalid Unicode-32 escape character', this.sp.name, this.sp.line, this.sp.column)
+                  //   }
+                  // }
+                  // this.sp.advance()
+                  // if (isHexadecimal(this.sp.char)) {
+                  //   n += this.sp.char
+                  // }
+                  // s += String.fromCharCode(parseInt(n, 16))
+                  // this.sp.advance()
                 }
                 break
               case '0': case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9':
                 {
                   let n = ''
-                  for (let i = 1; i < 3; i++) {
+                  for (let i = 0; i < 3; i++) {
                     if (isDigit(this.sp.char)) {
                       n += this.sp.char
                     } else {
@@ -290,14 +319,16 @@ export class Lexer {
                 }
                 break
               default:
-                throw new ParseFailure('invalid escape character', this.sp.name, this.sp.line, this.sp.column)
+                s += this.sp.char
+                this.sp.advance()
+                // throw new ParseFailure('invalid escape character', this.sp.name, this.sp.line, this.sp.column)
             }
-          }
-          if (eq(this.sp.char, '\n') && !quotation.multiline) {
+          } else if (eq(this.sp.char, '\n') && !quotation.multiline) {
             throw new ParseFailure('line break not allowed in this place', this.sp.name, this.sp.line, this.sp.column)
+          } else {
+            s += this.sp.char
+            this.sp.advance()
           }
-          s += this.sp.char
-          this.sp.advance()
         }
         this.sp.advance(quotation.stop.length)
         return new Token(quotation.tokenType, s, this.sp.name, startLine, startColumn)
@@ -959,7 +990,7 @@ export class Int32 {
   }
 
   static test(value: number): boolean {
-    return value >> 0 !== value
+    return value >> 0 === value
   }
 
   static cast(value: number): number {
@@ -1009,7 +1040,7 @@ export function parseInt32Safe(token: Token, octalPrefix0: boolean): number {
 }
 
 export function parseSafeInt(token: Token, octalPrefix0: boolean): SafeInt {
-    const literal = token.literal
+  const literal = token.literal
   if ((octalPrefix0 && (literal.startsWith('0') && literal.length > 1 || literal.startsWith('-0') && literal.length > 2)) || // 0123 -0123
     literal.startsWith('0o') || literal.startsWith('-0o'))  // 0o123 -0o123
   {

@@ -1,12 +1,17 @@
 /**
- * This monad is not that monad of Haskell's Parsec. Here a monadic either type is not used. The erroneus result is replaced by exception.
+ * @author RuMaxwell <935906960@qq.com>
+ * @description A monadic parser combinator.
+ */
+
+/**
+ * This monad is similar to that monad of Haskell's Parsec. Here a monadic either type is not used. The erroneus result is replaced by exception.
 line :: Parsec String () [String]
 line = cell >> (char ',' >> cells)
 
 char :: Parsec String () Char
  */
 
-import { Lexer, Token, ParseFailure, EOF, SourcePosition, ParseFailures } from './lex'
+import { Lexer, Token, ParseFailure, EOF, SourcePosition } from './lex'
 
 /**
  * maximum repeat count of a `many` or `more` parser

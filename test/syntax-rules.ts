@@ -1,6 +1,6 @@
 import * as rules from './lex-rules'
 import * as srcs from './testsrcs'
-import { parallel, Lazy, optionalLazy, Parser, tokenLazy, token, trivialLazy, more, trivial, ifElse, manyLazy, many, attempt, attemptLazy, testLazy, ifElseLazy, tokenLiteral, moreSeparated, moreSeparatedOptionalEnd, optional, moreEndWith, manySeparated, choices } from '../src/parse'
+import { parallel, Lazy, Parser, token, more, trivial, ifElse, many, attempt, tokenLiteral, moreSeparated, moreSeparatedOptionalEnd, optional, moreEndWith, manySeparated, choices, syntax } from '../src/parse'
 import { Lexer, ParseFailure, parseInt32Safe, Token } from '../src/lex'
 
 // foldr :: [a] -> (a -> b -> b) -> b -> b
@@ -19,9 +19,9 @@ function parserZero<T>(): Parser<T> {
   })
 }
 
-function choices1<ResultType>(...parsers: Lazy<Parser<any>>[]): Parser<ResultType> {
-  return foldr(parsers, ifElseLazy, new Lazy(() => parserZero<ResultType>())).eval()
-}
+// function choices1<ResultType>(...parsers: (Parser<any> | Lazy<Parser<any>>)[]): Parser<ResultType> {
+//   return foldr(parsers, ifElse, new Lazy(() => parserZero<ResultType>())).eval()
+// }
 
 export namespace json {
   export type JsonAny = number | string | boolean | null | JsonAny[] | json.JsonObject
@@ -35,15 +35,19 @@ export namespace json {
 
   export function object(): Parser<JsonObject> {
     return choices(
-      token('integer').translate(x => parseInt32Safe(x, false)).lazy(),
-      token('float').translate(x => parseFloat(x.literal)).lazy(),
-      token('string').translate(x => x.literal).lazy(),
-      token('null').end(null).lazy(),
-      token('boolean').translate(x => x.literal === 'true').lazy(),
-      token('[').thenLazy(manySeparated(new Lazy(object), tokenLazy(',')).bindLazy(xs => token(']').end(xs))),
-      token('{').thenLazy(manySeparated(
-        token('string').bindLazy(name => token(':').then(new Lazy(object)).bind(value => trivial<json.Attribute>({ name: name.literal, value }))),
-        tokenLazy(',')).bindLazy(xs => token('}').end((function () {
+      token('integer').translate(x => parseInt32Safe(x, false)),
+      token('float').translate(x => parseFloat(x.literal)),
+      token('string').translate(x => x.literal),
+      token('null').end(null),
+      token('boolean').translate(x => x.literal === 'true'),
+      token('[').then(manySeparated(syntax(object), token(',')).bind(xs => token(']').end(xs))),
+      token('{').then(
+        manySeparated(
+          token('string').bind(name => token(':').then(syntax(object)).bind(value => trivial<json.Attribute>({ name: name.literal, value }))),
+          token(',')
+        )
+        .bind(xs => token('}')
+        .end((function () {
           const obj: json.JsonObject = {}
           xs.forEach(x => {
             obj[x.name] = x.value
@@ -61,7 +65,7 @@ export namespace json {
 
 export namespace test {
   export function intsEndByComma(): Parser<number[]> {
-    return moreEndWith(new Lazy(int), tokenLazy(',')).tag(intsEndByComma.name)
+    return moreEndWith(new Lazy(int), token(',')).tag(intsEndByComma.name)
   }
 
   export function moreInts(): Parser<number[]> {
@@ -74,8 +78,8 @@ export namespace test {
 
   export function ints(): Parser<number[]> {
     return ifElse(
-      int().bindLazy(i => ints().bind(is => trivial([i].concat(is)))),
-      trivialLazy([])
+      int().bind(i => ints().bind(is => trivial([i].concat(is)))),
+      trivial([])
     ).tag(ints.name)
   }
 
@@ -91,15 +95,15 @@ export namespace test {
     return choices(
       // token('integer').then(tokenLazy('float')).lazy(),
       // token('integer').then(tokenLazy('integer')).then(tokenLazy('float')).lazy(),
-      token('integer').translate(x => parseInt32Safe(x, false)).lazy(),
-      token('float').translate(x => parseFloat(x.literal)).lazy(),
-      token('string').translate(x => x.literal).lazy(),
-      token('null').end(null).lazy(),
-      token('boolean').translate(x => x.literal === 'true').lazy(),
-      token('[').thenLazy(manySeparated(new Lazy(a_b_c_d), tokenLazy(',')).bindLazy(xs => token(']').end(xs))),
-      token('{').thenLazy(manySeparated(
-        token('string').bindLazy(name => token(':').then(new Lazy(a_b_c_d)).bind(value => trivial<json.Attribute>({ name: name.literal, value }))),
-        tokenLazy(',')).bindLazy(xs => token('}').end((function () {
+      token('integer').translate(x => parseInt32Safe(x, false)),
+      token('float').translate(x => parseFloat(x.literal)),
+      token('string').translate(x => x.literal),
+      token('null').end(null),
+      token('boolean').translate(x => x.literal === 'true'),
+      token('[').then(manySeparated(syntax(a_b_c_d), token(',')).bind(xs => token(']').end(xs))),
+      token('{').then(manySeparated(
+        token('string').bind(name => token(':').then(syntax(a_b_c_d)).bind(value => trivial<json.Attribute>({ name: name.literal, value }))),
+        token(',')).bind(xs => token('}').end((function () {
           const obj: json.JsonObject = {}
           xs.forEach(x => {
             obj[x.name] = x.value

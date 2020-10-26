@@ -527,6 +527,126 @@ export function manyEndWith<T, SepT>(one: Parser<T> | Lazy<Parser<T>>, endWith: 
   return many(identity(one).bind(x => identity(endWith).end(x)))
 }
 
+export function chainLeftMore<T>(expr: Parser<T> | Lazy<Parser<T>>, operator: Parser<(x: T, y: T) => T> | Lazy<Parser<(x: T, y: T) => T>>): Parser<T> {
+  return new Parser(async (lexer: Lexer) => {
+    const _expr = unlazy(expr)
+    const _operator = unlazy(operator)
+
+    function rest(x: T): Parser<T> {
+      return new Parser(async (lexer: Lexer) => {
+        try {
+          const f = await _operator.parse(lexer)
+          const y = await _expr.parse(lexer)
+          return rest(f(x, y)).parse(lexer)
+        } catch (e) {
+          if (e instanceof ParseFailure) {
+            return x
+          } else {
+            throw e
+          }
+        }
+      }, 'chainLeftMore::rest')
+    }
+
+    const x = await _expr.parse(lexer)
+    return rest(x).parse(lexer)
+  }, 'chainLeftMore')
+}
+
+export function chainRightMore<T>(expr: Parser<T> | Lazy<Parser<T>>, operator: Parser<(x: T, y: T) => T> | Lazy<Parser<(x: T, y: T) => T>>): Parser<T> {
+  return new Parser(async (lexer: Lexer) => {
+    const _expr = unlazy(expr)
+    const _operator = unlazy(operator)
+
+    function scan(): Parser<T> {
+      return new Parser(async (lexer: Lexer) => {
+        const x = await _expr.parse(lexer)
+        return rest(x).parse(lexer)
+      }, 'chainRightMore::scan')
+    }
+
+    function rest(x: T): Parser<T> {
+      return new Parser(async (lexer: Lexer) => {
+        try {
+          const f = await _operator.parse(lexer)
+          const y = await scan().parse(lexer)
+          return f(x, y)
+        } catch (e) {
+          if (e instanceof ParseFailure) {
+            return x
+          } else {
+            throw e
+          }
+        }
+      }, 'chainRightMore::rest')
+    }
+
+    return scan().parse(lexer)
+  }, 'chainRightMore')
+}
+
+export function anyLeftMore<T>(expr: Parser<any> | Lazy<Parser<any>>, operator: Parser<(x: any, y: any) => any> | Lazy<Parser<(x: any, y: any) => any>>): Parser<T> {
+  return new Parser(async (lexer: Lexer) => {
+    const _expr = unlazy(expr)
+    const _operator = unlazy(operator)
+
+    function rest(x: any): Parser<any> {
+      return new Parser(async (lexer: Lexer) => {
+        try {
+          const f = await _operator.parse(lexer)
+          const y = await _expr.parse(lexer)
+          return rest(f(x, y)).parse(lexer)
+        } catch (e) {
+          if (e instanceof ParseFailure) {
+            return x
+          } else {
+            throw e
+          }
+        }
+      }, 'anyLeftMore::rest')
+    }
+
+    const x = await _expr.parse(lexer)
+    return rest(x).parse(lexer)
+  }, 'anyLeftMore')
+}
+
+export function anyRightMore<T>(expr: Parser<any> | Lazy<Parser<any>>, operator: Parser<(x: any, y: any) => any> | Lazy<Parser<(x: any, y: any) => any>>): Parser<T> {
+  return new Parser(async (lexer: Lexer) => {
+    const _expr = unlazy(expr)
+    const _operator = unlazy(operator)
+
+    function scan(): Parser<any> {
+      return new Parser(async (lexer: Lexer) => {
+        const x = await _expr.parse(lexer)
+        return rest(x).parse(lexer)
+      }, 'anyRightMore::scan')
+    }
+
+    function rest(x: any): Parser<any> {
+      return new Parser(async (lexer: Lexer) => {
+        try {
+          const f = await _operator.parse(lexer)
+          const y = await scan().parse(lexer)
+          return f(x, y)
+        } catch (e) {
+          if (e instanceof ParseFailure) {
+            return x
+          } else {
+            throw e
+          }
+        }
+      }, 'anyRightMore::rest')
+    }
+
+    return scan().parse(lexer)
+  }, 'anyRightMore')
+}
+
+// TODO:
+// export function arithmetic<ExprT>(operators: {}[]): Parser<ExprT> {
+// }
+
 /**
  * Tries to parse the specified parser and returns the result, but consume no input.
  */

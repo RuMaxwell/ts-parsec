@@ -120,19 +120,31 @@ export const json = (function() {
 export const test = (function() {
   const ruleSet = new RuleSet(
     [
-      { pattern: ';', tokenType: ';' },
-      { pattern: ',', tokenType: ',' },
-      { pattern: 'a', tokenType: 'a' },
-      { pattern: 'b', tokenType: 'b' },
-      { pattern: 'c', tokenType: 'c' },
-      { pattern: 'd', tokenType: 'd' },
+      { pattern: '!', tokenType: '!' },
+      { pattern: '^', tokenType: '^' },
+      { pattern: '+', tokenType: '+' },
+      { pattern: '-', tokenType: '-' },
+      { pattern: '*', tokenType: '*' },
+      { pattern: '/', tokenType: '/' },
     ],
     {
       skipSpaces: true,
       numbers: {
         integer: true,
         float: true,
-      }
+      },
+      operators: [
+        { pattern: '!', associativity: 'right' },
+        { pattern: '^', associativity: 'right' },
+        [
+          { pattern: '*', associativity: 'left' },
+          { pattern: '/', associativity: 'left' }
+        ],
+        [
+          { pattern: '+', associativity: 'left' },
+          { pattern: '-', associativity: 'left' }
+        ]
+      ]
     }
   )
 

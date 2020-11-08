@@ -1,4 +1,7 @@
 import './lex-test'
-import { LexTest } from './lex-test'
+import util from 'util'
+import { ParseTest } from './parse-test'
 
-LexTest()
+util.inspect.defaultOptions.depth = null
+
+ParseTest()

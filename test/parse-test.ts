@@ -1,4 +1,6 @@
-import { json, test } from './syntax-rules'
+import { expr, json, test } from './syntax-rules'
 
-// json.start().show(json.lexer)
-test.start().show(test.lexer)
+export function ParseTest() {
+  // json.start().show(json.lexer)
+  expr.start().show(test.lexer)
+}

@@ -194,8 +194,8 @@ export class Parser<ResultType> {
   }
 }
 
-export function syntax<T>(rule: () => Parser<T>): Lazy<Parser<T>> {
-  return new Lazy(rule)
+export function syntax<T>(rule: () => Parser<T>): Parser<T> {
+  return trivial(undefined).then(new Lazy(rule))
 }
 
 /** A parser that results in `value` immediately without parsing. */
@@ -644,36 +644,36 @@ export function anyRightMore<T>(expr: Parser<any> | Lazy<Parser<any>>, operator:
 }
 
 // An operator-precedence parser.
-export function arithmetic<ResultT>(
-  precedenceLevels: (
-    {
-      operatorParser: Parser<any> | Lazy<Parser<any>>,
-      operandParsers: (Parser<any> | Lazy<Parser<any>>)[],
-      associativity: 'none' | 'left' | 'right',
-      calculation: (...operands: any[]) => any,
-    } | {
-      operatorParser: Parser<any> | Lazy<Parser<any>>,
-      operandParsers: (Parser<any> | Lazy<Parser<any>>)[],
-      associativity: 'none' | 'left' | 'right',
-      calculation: (...operands: any[]) => any,
-    }[]
-  )[]
-): Parser<ResultT> {
-  async function matchOperator(lexer: Lexer) {
-    for (let i = 0; i < precedenceLevels.length; i++) {
-      const precedenceLevel = precedenceLevels[i]
-      if (precedenceLevel instanceof Array) {
-        for (let j = 0; j < precedenceLevel.length; j++) {
-          const operation = precedenceLevel[j]
-          try {
-            const op = await attempt(operation.operatorParser).parse(lexer)
-          } catch (e) {
-          }
-        }
-      }
-    }
-  }
-}
+// export function arithmetic<ResultT>(
+//   precedenceLevels: (
+//     {
+//       operatorParser: Parser<any> | Lazy<Parser<any>>,
+//       operandParsers: (Parser<any> | Lazy<Parser<any>>)[],
+//       associativity: 'none' | 'left' | 'right',
+//       calculation: (...operands: any[]) => any,
+//     } | {
+//       operatorParser: Parser<any> | Lazy<Parser<any>>,
+//       operandParsers: (Parser<any> | Lazy<Parser<any>>)[],
+//       associativity: 'none' | 'left' | 'right',
+//       calculation: (...operands: any[]) => any,
+//     }[]
+//   )[]
+// ): Parser<ResultT> {
+//   async function matchOperator(lexer: Lexer) {
+//     for (let i = 0; i < precedenceLevels.length; i++) {
+//       const precedenceLevel = precedenceLevels[i]
+//       if (precedenceLevel instanceof Array) {
+//         for (let j = 0; j < precedenceLevel.length; j++) {
+//           const operation = precedenceLevel[j]
+//           try {
+//             const op = await attempt(operation.operatorParser).parse(lexer)
+//           } catch (e) {
+//           }
+//         }
+//       }
+//     }
+//   }
+// }
 
 /**
  * Tries to parse the specified parser and returns the result, but consume no input.

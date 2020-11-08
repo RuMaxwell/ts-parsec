@@ -1,7 +1,8 @@
 import * as rules from './lex-rules'
 import * as srcs from './testsrcs'
-import { parallel, Lazy, Parser, token, more, trivial, ifElse, many, attempt, tokenLiteral, moreSeparated, moreSeparatedOptionalEnd, optional, moreEndWith, manySeparated, choices, syntax, identity, chainLeftMore, chainRightMore } from '../src/parse'
-import { Lexer, ParseFailure, parseInt32Safe, Token } from '../src/lex'
+import { parallel, Lazy, Parser, token, more, trivial, ifElse, many, attempt, tokenLiteral, moreSeparated, moreSeparatedOptionalEnd, optional, moreEndWith, manySeparated, choices, syntax, identity, chainLeftMore, chainRightMore, string, manySeparatedOptionalEnd } from '../src/parse'
+import { Lexer, ParseFailure, parseInt32Safe, parseSafeInt, SafeInt, Token } from '../src/lex'
+import { REPLCommand } from 'repl'
 
 // foldr :: [a] -> (a -> b -> b) -> b -> b
 function foldr<A, B>(container: A[], folder: (item: A, accumulation: B) => B, init: B): B {
@@ -61,6 +62,82 @@ export namespace json {
   export const start = () => object().eof()
 
   export const lexer = new Lexer(rules.json, srcs.json, 'test.json')
+}
+
+export namespace expr {
+  interface IExpr {
+    op: string
+    [keys: string]: any
+  }
+
+  export function expr(): Parser<number | SafeInt | string | boolean | null | Record<string, any>> {
+    return ifElse(syntax(atom), syntax(conditional))
+  }
+
+  export function conditional(): Parser<{ op: 'conditional', cond: any, THEN: any, ELSE: any }> {
+    return token('if')
+      .then(syntax(expr))
+      .bind(cond => syntax(groupExpr)
+      .bind(THEN => token('else')
+      .then(syntax(groupExpr)
+      .translate(ELSE => ({ op: 'conditional', cond, THEN, ELSE })))))
+  }
+
+  export function tuple(): Parser<{ op: 'tuple', items: any[] }> {
+    return string('(')
+      .then(manySeparatedOptionalEnd(syntax(expr), string(',')))
+      .bind(items => string(')')
+      .end({ op: 'tuple', items }))
+  }
+
+  export function list(): Parser<{ op: 'list', items: any[] }> {
+    return string('[')
+      .then(manySeparatedOptionalEnd(syntax(expr), string(',')))
+      .bind(items => string(']')
+      .end({ op: 'list', items }))
+  }
+
+  export function pair(): Parser<{ key: string, value: any }> {
+    return token('id')
+      .bind(key => optional(
+        string(':')
+          .then(syntax(expr))
+          .translate(value => ({ key: key.literal, value }))
+      )
+      .translate(pair => pair || { key: key.literal, value: undefined }))
+  }
+
+  export function map(): Parser<{ op: 'map', pairs: { key: string, value: any }[] }> {
+    return string('{')
+      .then(manySeparatedOptionalEnd(syntax(pair), string(',')))
+      .bind(pairs => string('}')
+      .end({ op: 'map', pairs }))
+  }
+
+  export function groupExpr(): Parser<{ op: 'group', exprs: any[] }> {
+    return string('{')
+      .then(manySeparatedOptionalEnd(syntax(expr), string(';')))
+      .bind(exprs => string('}')
+      .end({ op: 'group', exprs }))
+  }
+
+  export function atom(): Parser<number | SafeInt | string | boolean | null | IExpr> {
+    return choices(
+      token('float').translate(tk => parseFloat(tk.literal)),
+      token('integer').translate(tk => parseSafeInt(tk, false)),
+      token('string').translate(tk => tk.literal.slice(1, -1)),
+      token('true').end(true),
+      token('false').end(false),
+      token('null').end(null),
+      syntax(tuple),
+      syntax(list),
+      syntax(groupExpr)
+    )
+  }
+
+  export const start = expr
+
+  export const lexer = new Lexer(rules.test, srcs.test, 'expr')
 }
 
 export namespace test {

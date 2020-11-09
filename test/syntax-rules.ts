@@ -107,17 +107,18 @@ export namespace expr {
       .translate(pair => pair || { key: key.literal, value: undefined }))
   }
 
-  export function map(): Parser<{ op: 'map', pairs: { key: string, value: any }[] }> {
-    return string('{')
-      .then(manySeparatedOptionalEnd(syntax(pair), string(',')))
-      .bind(pairs => string('}')
+  // export function map(): Parser<{ op: 'map', pairs: { key: string, value: any }[] }> {
+  export function map(): Parser<{ op: 'map', pairs: string[] }> {
+    return token('{')
+      .then(moreSeparatedOptionalEnd(string('1'), token(',')))
+      .bind(pairs => token('}')
       .end({ op: 'map', pairs }))
   }
 
   export function groupExpr(): Parser<{ op: 'group', exprs: any[] }> {
-    return string('{')
-      .then(manySeparatedOptionalEnd(syntax(expr), string(';')))
-      .bind(exprs => string('}')
+    return token('{')
+      .then(manySeparatedOptionalEnd(syntax(expr), token(';')))
+      .bind(exprs => token('}')
       .end({ op: 'group', exprs }))
   }
 

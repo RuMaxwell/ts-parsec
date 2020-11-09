@@ -126,6 +126,10 @@ export const test = (function() {
       { pattern: /^if(?![A-Za-z_0-9])/, tokenType: 'if' },
       { pattern: /^else(?![A-Za-z_0-9])/, tokenType: 'else' },
       { pattern: /^[A-Za-z_][A-Za-z_0-9]*/, tokenType: 'id' },
+      { pattern: '{', tokenType: '{' },
+      { pattern: '}', tokenType: '}' },
+      { pattern: ',', tokenType: ',' },
+      { pattern: ';', tokenType: ';' },
     ],
     {
       skipSpaces: true,
